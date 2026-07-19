@@ -17,18 +17,22 @@ class ToolbarManager(
 ) {
 
     interface ToolbarCallback {
+        fun onStartClicked()
         fun onAutoClicked()
         fun onManualClicked()
         fun onResetClicked()
+        fun onExitClicked()
     }
 
     private val windowManager: WindowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
     private var toolbarView: LinearLayout? = null
+    private var startButton: Button? = null
     private var autoButton: Button? = null
     private var manualButton: Button? = null
     private var resetButton: Button? = null
+    private var exitButton: Button? = null
     private var statusText: TextView? = null
     private var attached = false
 
@@ -44,7 +48,7 @@ class ToolbarManager(
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
-            setBackgroundColor(0xCC222222.toInt())
+            setBackgroundColor(0xEE1565C0.toInt())
         }
 
         val status = TextView(context).apply {
@@ -53,12 +57,18 @@ class ToolbarManager(
             gravity = Gravity.CENTER
         }
 
+        val start = Button(context).apply {
+            text = "▶ 开始"
+            setOnClickListener { callback.onStartClicked() }
+        }
         val auto = Button(context).apply {
             text = "⏱ 自动(5s)"
+            visibility = View.GONE
             setOnClickListener { callback.onAutoClicked() }
         }
         val manual = Button(context).apply {
             text = "👆 手动"
+            visibility = View.GONE
             setOnClickListener { callback.onManualClicked() }
         }
         val reset = Button(context).apply {
@@ -66,11 +76,17 @@ class ToolbarManager(
             visibility = View.GONE
             setOnClickListener { callback.onResetClicked() }
         }
+        val exit = Button(context).apply {
+            text = "⏹ 退出"
+            setOnClickListener { callback.onExitClicked() }
+        }
 
         layout.addView(status)
+        layout.addView(start)
         layout.addView(auto)
         layout.addView(manual)
         layout.addView(reset)
+        layout.addView(exit)
 
         val params = WindowManager.LayoutParams().apply {
             type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -89,12 +105,19 @@ class ToolbarManager(
 
         layout.setOnTouchListener { _, event -> onTouch(event, params, layout) }
 
-        windowManager.addView(layout, params)
+        try {
+            windowManager.addView(layout, params)
+            android.util.Log.d("ScreenFlip", "Toolbar attached ok")
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenFlip", "Toolbar attach failed: ${e.message}")
+        }
         toolbarView = layout
         statusText = status
+        startButton = start
         autoButton = auto
         manualButton = manual
         resetButton = reset
+        exitButton = exit
         attached = true
     }
 
@@ -136,24 +159,39 @@ class ToolbarManager(
     }
 
     fun setOperating(countdown: Boolean) {
+        startButton?.visibility = View.GONE
         autoButton?.visibility = View.GONE
         manualButton?.visibility = View.GONE
         resetButton?.visibility = View.GONE
+        exitButton?.visibility = View.VISIBLE
         statusText?.text = if (countdown) "操作中…(自动)" else "操作中…(手动点通知完成)"
     }
 
     fun setShowing() {
+        startButton?.visibility = View.GONE
         autoButton?.visibility = View.GONE
         manualButton?.visibility = View.GONE
         resetButton?.visibility = View.VISIBLE
+        exitButton?.visibility = View.VISIBLE
         statusText?.text = "已显示翻转画面"
     }
 
     fun setWaiting() {
+        startButton?.visibility = View.GONE
         autoButton?.visibility = View.VISIBLE
         manualButton?.visibility = View.VISIBLE
         resetButton?.visibility = View.GONE
+        exitButton?.visibility = View.VISIBLE
         statusText?.text = "镜像工具"
+    }
+
+    fun setIdle() {
+        startButton?.visibility = View.VISIBLE
+        autoButton?.visibility = View.GONE
+        manualButton?.visibility = View.GONE
+        resetButton?.visibility = View.GONE
+        exitButton?.visibility = View.VISIBLE
+        statusText?.text = "点击开始"
     }
 
     fun hide() {

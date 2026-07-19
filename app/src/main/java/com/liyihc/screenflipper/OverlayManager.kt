@@ -41,7 +41,12 @@ class OverlayManager(private val context: Context) {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
             gravity = Gravity.TOP or Gravity.START
         }
-        windowManager.addView(view, params)
+        try {
+            windowManager.addView(view, params)
+            android.util.Log.d("ScreenFlip", "Overlay attached ok")
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenFlip", "Overlay attach failed: ${e.message}")
+        }
         overlayView = view
         attached = true
     }

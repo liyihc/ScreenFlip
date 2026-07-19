@@ -71,40 +71,31 @@ class MirrorEngine(
                 val rowStride = plane.rowStride
                 val pixelStride = plane.pixelStride
                 val buffer: ByteBuffer = plane.buffer
-                val src = ByteArray(buffer.remaining())
-                buffer.get(src)
+
+                // 每行在源 buffer 中占 rowStride 字节，但 Bitmap 需要紧密打包 (w*4)
                 val flipped = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                flipped.copyPixelsFromBuffer(
-                    ByteBuffer.wrap(flipHorizontally(src, width, height, pixelStride, rowStride))
-                )
+                val dst = ByteBuffer.allocateDirect(width * height * 4)
+                val rowBytes = ByteArray(rowStride)
+                for (y in 0 until height) {
+                    buffer.position(y * rowStride)
+                    buffer.get(rowBytes)
+                    for (x in 0 until width) {
+                        val srcOffset = x * pixelStride
+                        val dstOffset = ((height - 1 - y) * width + (width - 1 - x)) * 4
+                        dst.put(dstOffset, rowBytes[srcOffset])
+                        dst.put(dstOffset + 1, rowBytes[srcOffset + 1])
+                        dst.put(dstOffset + 2, rowBytes[srcOffset + 2])
+                        dst.put(dstOffset + 3, rowBytes[srcOffset + 3])
+                    }
+                }
+                dst.rewind()
+                flipped.copyPixelsFromBuffer(dst)
                 image.close()
                 callback.onSnapshotReady(flipped)
             } catch (e: Exception) {
                 callback.onCaptureError()
             }
         }
-    }
-
-    private fun flipHorizontally(
-        src: ByteArray,
-        w: Int,
-        h: Int,
-        pixelStride: Int,
-        rowStride: Int
-    ): ByteArray {
-        val dst = ByteArray(src.size)
-        for (y in 0 until h) {
-            val rowStart = y * rowStride
-            for (x in 0 until w) {
-                val srcOffset = rowStart + x * pixelStride
-                val dstOffset = rowStart + (w - 1 - x) * pixelStride
-                dst[dstOffset] = src[srcOffset]
-                dst[dstOffset + 1] = src[srcOffset + 1]
-                dst[dstOffset + 2] = src[srcOffset + 2]
-                dst[dstOffset + 3] = src[srcOffset + 3]
-            }
-        }
-        return dst
     }
 
     fun stop() {

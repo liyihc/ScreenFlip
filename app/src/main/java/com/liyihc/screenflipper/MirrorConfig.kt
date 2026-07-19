@@ -24,11 +24,16 @@ class MirrorConfig(context: Context) {
         get() = prefs.getInt(KEY_RENDER_FPS_CAP, 0)
         set(value) = prefs.edit().putInt(KEY_RENDER_FPS_CAP, value).apply()
 
+    var running: Boolean
+        get() = prefs.getBoolean(KEY_RUNNING, false)
+        set(value) = prefs.edit().putBoolean(KEY_RUNNING, value).apply()
+
     companion object {
         private const val PREFS_NAME = "screen_flip_prefs"
         private const val KEY_PAUSE_DURATION = "pause_duration"
         private const val KEY_TOOLBAR_X = "toolbar_x"
         private const val KEY_TOOLBAR_Y = "toolbar_y"
         private const val KEY_RENDER_FPS_CAP = "render_fps_cap"
+        private const val KEY_RUNNING = "running"
     }
 }
