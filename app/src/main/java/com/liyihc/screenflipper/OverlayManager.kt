@@ -64,7 +64,9 @@ class OverlayManager(private val context: Context) {
     }
 
     fun detach() {
-        overlayView?.let { windowManager.removeView(it) }
+        overlayView?.let {
+            try { windowManager.removeView(it) } catch (_: Exception) {}
+        }
         overlayView = null
         attached = false
     }

@@ -17,7 +17,7 @@ class MirrorEngine(
 ) {
 
     interface Callback {
-        fun onSnapshotReady(bitmap: Bitmap)
+        fun onRawFrameReady(bitmap: Bitmap)
         fun onCaptureError()
     }
 
@@ -122,7 +122,7 @@ class MirrorEngine(
             val buffer: ByteBuffer = plane.buffer
 
             // 每行在源 buffer 中占 rowStride 字节，但 Bitmap 需要紧密打包 (w*4)
-            val flipped = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val raw = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val dst = ByteBuffer.allocateDirect(width * height * 4)
             val rowBytes = ByteArray(rowStride)
             for (sy in 0 until height) {
@@ -130,15 +130,7 @@ class MirrorEngine(
                 buffer.get(rowBytes)
                 for (sx in 0 until width) {
                     val srcOffset = sx * pixelStride
-                    val (dx, dy) = when (flipMode) {
-                        MirrorConfig.FLIP_MIRROR ->
-                            (width - 1 - sx) to sy
-                        MirrorConfig.FLIP_MIRROR_ROTATE_180 ->
-                            sx to (height - 1 - sy)
-                        else -> // FLIP_ROTATE_180
-                            (width - 1 - sx) to (height - 1 - sy)
-                    }
-                    val dstOffset = (dy * width + dx) * 4
+                    val dstOffset = (sy * width + sx) * 4
                     dst.put(dstOffset, rowBytes[srcOffset])
                     dst.put(dstOffset + 1, rowBytes[srcOffset + 1])
                     dst.put(dstOffset + 2, rowBytes[srcOffset + 2])
@@ -146,10 +138,10 @@ class MirrorEngine(
                 }
             }
             dst.rewind()
-            flipped.copyPixelsFromBuffer(dst)
+            raw.copyPixelsFromBuffer(dst)
             image.close()
-            android.util.Log.d("ScreenFlip", "captureFlipped: bitmap built, calling onSnapshotReady")
-            callback.onSnapshotReady(flipped)
+            android.util.Log.d("ScreenFlip", "captureFlipped: raw bitmap built, calling onRawFrameReady")
+            callback.onRawFrameReady(raw)
         } catch (e: Exception) {
             android.util.Log.e("ScreenFlip", "captureFlipped process error: ${e.message}")
             try { image.close() } catch (_: Exception) {}

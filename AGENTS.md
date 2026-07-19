@@ -6,8 +6,11 @@ in an opaque `Activity`.
 
 ## Build (no system JDK — set manually)
 
+The system has NO system JDK; set `JAVA_HOME` before any gradle call. All env paths
+(ADB, JDK) are centralized in `docs/DEBUGGING.md` — read that first each session.
+
 ```
-$env:JAVA_HOME = "C:\Program Files\Android\Studio\jbr"
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 .\gradlew.bat assembleDebug
 ```
 

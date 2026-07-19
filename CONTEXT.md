@@ -95,13 +95,29 @@ domain it is a capture backdrop, distinct from the Display.
 _Avoid_: preview, flipped view
 
 **Toolbar**:
-The draggable floating window that lets the user arm Operations, cycle Flip Mode,
-and exit. Hidden while an Operation is in flight. Its title bar shows the app name.
-_Avoid_: controls, panel
+The draggable floating window (悬浮窗) that lets the user arm Operations, cycle
+Flip Mode, and exit. Kept visible during the Auto Loop countdown; hidden only for
+the instant a Frame is captured.
+_Avoid_: controls, panel, preview window (the preview is the Display, a different thing)
+
+**Toolbar Manipulation gesture**:
+The touch interaction on the Toolbar's title bar, resolving into *Reposition*
+(movement >10px) or *Compact Toggle* (400ms elapse with no >10px movement),
+whichever fires first. The toggle fires on timer elapse; the gesture locks once
+resolved.
+_Avoid_: drag, long-click (these name one outcome, not the gesture as a whole)
+
+**Preview Window**:
+The full-screen Display Activity showing the Snapshot. "预览窗" = Display,
+"悬浮窗" = Toolbar; never conflate.
+_Avoid_: floating window, overlay (those are the Toolbar / capture backdrop)
 
 **Compact Mode**:
-A Toolbar presentation showing only the Auto and Manual controls (as icons), with
-the other buttons hidden. The Auto control indicates its on/off state visually.
+A Toolbar presentation showing only the Auto and Manual controls as icons (`⏱` /
+`👆`) on a single row, with other buttons and the pause-input hidden. The Auto
+control indicates its on/off state via background highlight. Full Mode shows the
+same controls with text, Auto and Manual each on their own row, the Auto row
+carrying the pause-input + `S` unit.
 _Avoid_: mini mode, collapsed
 
 ### State
@@ -112,3 +128,22 @@ OPERATING_MANUAL, SHOWING. It tracks where the app is in the Operation lifecycle
 Auto Mode's looping is layered on top of these States via `autoEnabled` + a
 suspended/resumed countdown, rather than living entirely inside OPERATING_AUTO.
 _Avoid_: status (status is the human-readable label shown in the Toolbar/notification; State is the machine value)
+
+### Runtime state & MVVM
+
+**AppState (singleton)**:
+A process-wide `object` holding the in-memory, ephemeral runtime state as
+`StateFlow`s. Holds: `autoEnabled`, `rawFrame`, `isDisplayShowing`, `flipMode`,
+`compactMode`, `showText`. NOT persisted. Distinct from MirrorConfig.
+_Avoid_: ViewModel (it is not an Android ViewModel), config (config is the persisted layer)
+
+**rawFrame**:
+The latest captured but not-yet-flipped Frame, in `AppState.rawFrame` as
+`StateFlow<Bitmap?>`. The Display subscribes to `rawFrame` + `flipMode` and computes
+the Snapshot itself.
+_Avoid_: snapshot (snapshot is the flipped, display-ready product), image
+
+**persisted config vs runtime state**:
+Two separate layers: MirrorConfig (DataStore) owns durable user settings;
+AppState (singleton StateFlows) owns volatile runtime facts. They coexist.
+_Avoid_: treating them as one store

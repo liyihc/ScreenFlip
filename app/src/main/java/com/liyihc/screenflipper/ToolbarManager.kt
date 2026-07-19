@@ -2,6 +2,8 @@ package com.liyihc.screenflipper
 
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
@@ -12,6 +14,12 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 class ToolbarManager(
     private val context: Context,
@@ -23,7 +31,6 @@ class ToolbarManager(
         fun onStartClicked()
         fun onAutoToggled(enabled: Boolean)
         fun onManualClicked()
-        fun onResetClicked()
         fun onExitClicked()
         fun onFlipModeClicked()
         fun onPauseSecondsChanged(seconds: Long)
@@ -33,16 +40,25 @@ class ToolbarManager(
     private val windowManager: WindowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
+    private val handler = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     private var toolbarView: LinearLayout? = null
     private var titleText: TextView? = null
     private var startButton: Button? = null
+    private var fullAutoRow: LinearLayout? = null
     private var autoCheckbox: CheckBox? = null
-    private var manualButton: Button? = null
+    private var autoLabelView: TextView? = null
     private var pauseInput: EditText? = null
-    private var resetButton: Button? = null
+    private var autoUnit: TextView? = null
+    private var manualButton: Button? = null
+    private var fullManualRow: LinearLayout? = null
     private var exitButton: Button? = null
     private var flipButton: Button? = null
     private var statusText: TextView? = null
+    private var compactRow: LinearLayout? = null
+    private var compactAuto: CheckBox? = null
+    private var compactManual: Button? = null
     private var attached = false
 
     private var initialX = 0
@@ -51,21 +67,17 @@ class ToolbarManager(
     private var touchY = 0f
     private var touchDownTime = 0L
     private var dragHandled = false
+    private var longPressFired = false
     private var compact = false
     private var autoEnabled = false
+    private var longPressRunnable: Runnable? = null
 
     fun attach() {
         if (attached) return
-        val layout = LinearLayout(context).apply {
+        val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 16, 16, 16)
             setBackgroundColor(0xEE1565C0.toInt())
-        }
-
-        val status = TextView(context).apply {
-            setTextColor(0xFFFFFFFF.toInt())
-            text = "镜像工具"
-            gravity = Gravity.CENTER
         }
 
         val title = TextView(context).apply {
@@ -76,21 +88,28 @@ class ToolbarManager(
             setPadding(0, 0, 0, 8)
         }
 
+        val status = TextView(context).apply {
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+
         val start = Button(context).apply {
             text = "▶ 开始"
             setOnClickListener { callback.onStartClicked() }
         }
+
         val auto = CheckBox(context).apply {
-            text = "⏱ 自动循环"
-            setTextColor(0xFFFFFFFF.toInt())
+            text = ""
             setOnCheckedChangeListener { _, isChecked ->
                 if (isChecked != autoEnabled) callback.onAutoToggled(isChecked)
             }
         }
-        val manual = Button(context).apply {
-            text = "👆 手动"
-            visibility = View.GONE
-            setOnClickListener { callback.onManualClicked() }
+        val autoLabel = TextView(context).apply {
+            text = "⏱ 自动循环"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 14f
+            setPadding(8, 0, 0, 0)
         }
         val pause = EditText(context).apply {
             setTextColor(0xFFFFFFFF.toInt())
@@ -100,7 +119,7 @@ class ToolbarManager(
             textSize = 14f
             setSingleLine()
             gravity = Gravity.CENTER
-            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(80, LinearLayout.LayoutParams.WRAP_CONTENT)
             onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
                 if (!hasFocus) {
                     val v = text.toString().toLongOrNull()
@@ -108,11 +127,29 @@ class ToolbarManager(
                 }
             }
         }
-        val reset = Button(context).apply {
-            text = "🔄 重新操作"
-            visibility = View.GONE
-            setOnClickListener { callback.onResetClicked() }
+        val unit = TextView(context).apply {
+            setTextColor(0xFFFFFFFF.toInt())
+            text = "S"
+            textSize = 14f
         }
+        val fullAuto = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(auto)
+            addView(autoLabel)
+            addView(pause)
+            addView(unit)
+        }
+
+        val manual = Button(context).apply {
+            text = "👆 手动"
+            setOnClickListener { callback.onManualClicked() }
+        }
+        val fullManual = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(manual)
+        }
+
         val flip = Button(context).apply {
             text = "🔁 翻转:旋转180°"
             setOnClickListener { callback.onFlipModeClicked() }
@@ -122,15 +159,39 @@ class ToolbarManager(
             setOnClickListener { callback.onExitClicked() }
         }
 
-        layout.addView(title)
-        layout.addView(status)
-        layout.addView(start)
-        layout.addView(auto)
-        layout.addView(pause)
-        layout.addView(manual)
-        layout.addView(reset)
-        layout.addView(flip)
-        layout.addView(exit)
+        val cAuto = CheckBox(context).apply {
+            text = ""
+            setOnCheckedChangeListener { _, isChecked ->
+                if (isChecked != autoEnabled) callback.onAutoToggled(isChecked)
+            }
+        }
+        val cAutoLabel = TextView(context).apply {
+            text = "⏱"
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 14f
+            setPadding(8, 0, 0, 0)
+        }
+        val cManual = Button(context).apply {
+            text = "👆"
+            setOnClickListener { callback.onManualClicked() }
+        }
+        val cRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(cAuto)
+            addView(cAutoLabel)
+            addView(cManual)
+            visibility = View.GONE
+        }
+
+        root.addView(title)
+        root.addView(status)
+        root.addView(start)
+        root.addView(fullAuto)
+        root.addView(fullManual)
+        root.addView(cRow)
+        root.addView(flip)
+        root.addView(exit)
 
         val params = WindowManager.LayoutParams().apply {
             type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -147,25 +208,44 @@ class ToolbarManager(
             y = config.toolbarY
         }
 
-        title.setOnTouchListener { _, event -> onTouch(event, params, layout) }
+        title.setOnTouchListener { _, event -> onTouch(event, params, root) }
 
         try {
-            windowManager.addView(layout, params)
+            windowManager.addView(root, params)
             android.util.Log.d("ScreenFlip", "Toolbar attached ok")
         } catch (e: Exception) {
             android.util.Log.e("ScreenFlip", "Toolbar attach failed: ${e.message}")
         }
-        toolbarView = layout
+        toolbarView = root
         titleText = title
         statusText = status
         startButton = start
+        fullAutoRow = fullAuto
         autoCheckbox = auto
-        manualButton = manual
+        autoLabelView = autoLabel
         pauseInput = pause
-        resetButton = reset
+        autoUnit = unit
+        manualButton = manual
+        fullManualRow = fullManual
         exitButton = exit
         flipButton = flip
+        compactRow = cRow
+        compactAuto = cAuto
+        compactManual = cManual
         attached = true
+
+        scope.launch {
+            AppState.showText
+                .onEach { text ->
+                    if (text.isBlank()) {
+                        statusText?.visibility = View.GONE
+                    } else {
+                        statusText?.text = text
+                        statusText?.visibility = View.VISIBLE
+                    }
+                }
+                .collect {}
+        }
     }
 
     private fun onTouch(event: MotionEvent, params: WindowManager.LayoutParams, view: View): Boolean {
@@ -177,12 +257,20 @@ class ToolbarManager(
                 touchY = event.rawY
                 touchDownTime = System.currentTimeMillis()
                 dragHandled = false
+                longPressFired = false
+                longPressRunnable = Runnable {
+                    longPressFired = true
+                    callback.onCompactToggled()
+                }
+                handler.postDelayed(longPressRunnable!!, 400)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = (event.rawX - touchX).toInt()
                 val dy = (event.rawY - touchY).toInt()
-                if (!dragHandled && (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10)) {
+                if (!dragHandled && !longPressFired && (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10)) {
                     dragHandled = true
+                    longPressRunnable?.let { handler.removeCallbacks(it) }
+                    longPressRunnable = null
                 }
                 if (dragHandled) {
                     params.x = initialX + dx
@@ -191,15 +279,14 @@ class ToolbarManager(
                 }
             }
             MotionEvent.ACTION_UP -> {
-                val dt = System.currentTimeMillis() - touchDownTime
-                val dx = (event.rawX - touchX).toInt()
-                val dy = (event.rawY - touchY).toInt()
-                if (!dragHandled && dt > 500 && kotlin.math.abs(dx) < 10 && kotlin.math.abs(dy) < 10) {
-                    callback.onCompactToggled()
-                } else if (dragHandled) {
+                longPressRunnable?.let { handler.removeCallbacks(it) }
+                longPressRunnable = null
+                if (dragHandled) {
                     config.toolbarX = params.x
                     config.toolbarY = params.y
                 }
+                dragHandled = false
+                longPressFired = false
             }
         }
         return true
@@ -207,48 +294,57 @@ class ToolbarManager(
 
     fun setOperating(countdown: Boolean) {
         startButton?.visibility = View.GONE
-        autoCheckbox?.visibility = View.GONE
-        manualButton?.visibility = View.GONE
-        pauseInput?.visibility = View.GONE
-        resetButton?.visibility = View.GONE
+        fullAutoRow?.visibility = if (compact) View.GONE else View.VISIBLE
+        fullManualRow?.visibility = if (compact) View.GONE else View.VISIBLE
+        compactRow?.visibility = View.GONE
+        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
         exitButton?.visibility = View.VISIBLE
-        statusText?.text = if (countdown) "操作中…(自动)" else "操作中…(手动点通知完成)"
+        AppState.setShowText(
+            if (countdown) "操作中…(自动)" else "操作中…(手动点通知完成)"
+        )
     }
 
     fun setShowing() {
         startButton?.visibility = View.GONE
-        autoCheckbox?.visibility = View.GONE
-        manualButton?.visibility = View.GONE
-        pauseInput?.visibility = View.GONE
-        resetButton?.visibility = View.VISIBLE
+        fullAutoRow?.visibility = View.GONE
+        fullManualRow?.visibility = View.GONE
+        compactRow?.visibility = View.GONE
+        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
         exitButton?.visibility = View.VISIBLE
-        statusText?.text = "已显示翻转画面"
+        AppState.setShowText("已显示翻转画面")
     }
 
     fun setWaiting() {
         startButton?.visibility = View.GONE
-        autoCheckbox?.visibility = if (compact) View.GONE else View.VISIBLE
-        manualButton?.visibility = if (compact) View.VISIBLE else View.VISIBLE
-        pauseInput?.visibility = if (compact) View.GONE else View.VISIBLE
-        resetButton?.visibility = View.GONE
+        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
         exitButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        statusText?.text = "镜像工具"
+        if (compact) {
+            fullAutoRow?.visibility = View.GONE
+            fullManualRow?.visibility = View.GONE
+            compactRow?.visibility = View.VISIBLE
+        } else {
+            fullAutoRow?.visibility = View.VISIBLE
+            fullManualRow?.visibility = View.VISIBLE
+            compactRow?.visibility = View.GONE
+        }
+        AppState.setShowText("")
     }
 
     fun setIdle() {
         startButton?.visibility = View.VISIBLE
-        autoCheckbox?.visibility = View.GONE
-        manualButton?.visibility = View.GONE
-        pauseInput?.visibility = View.GONE
-        resetButton?.visibility = View.GONE
-        exitButton?.visibility = View.VISIBLE
-        statusText?.text = "点击开始"
+        fullAutoRow?.visibility = View.GONE
+        fullManualRow?.visibility = View.GONE
+        compactRow?.visibility = View.GONE
+        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
+        exitButton?.visibility = if (compact) View.GONE else View.VISIBLE
+        AppState.setShowText("")
     }
 
     fun setAutoEnabled(enabled: Boolean) {
         autoEnabled = enabled
         autoCheckbox?.isChecked = enabled
-        if (compact) applyCompactAutoVisual()
+        compactAuto?.isChecked = enabled
+        applyAutoVisual()
     }
 
     fun setPauseSeconds(seconds: Long) {
@@ -258,26 +354,25 @@ class ToolbarManager(
 
     fun setCompact(isCompact: Boolean) {
         compact = isCompact
-        rebuildCompactVisibility()
+        AppState.setCompactMode(isCompact)
+        rebuildVisibility()
     }
 
-    private fun rebuildCompactVisibility() {
-        val fullButtons = listOf(flipButton)
-        fullButtons.forEach { it?.visibility = if (compact) View.GONE else View.VISIBLE }
-        exitButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        pauseInput?.visibility = if (compact) View.GONE else View.VISIBLE
-        autoCheckbox?.visibility = if (compact) View.GONE else View.VISIBLE
-        manualButton?.visibility = View.VISIBLE
-        manualButton?.text = if (compact) "👆" else "👆 手动"
-        autoCheckbox?.text = if (compact) "⏱" else "⏱ 自动循环"
-        if (compact) applyCompactAutoVisual() else autoCheckbox?.setBackgroundColor(0)
+    private fun rebuildVisibility() {
+        val showFull = !compact
+        fullAutoRow?.visibility = if (showFull) View.VISIBLE else View.GONE
+        fullManualRow?.visibility = if (showFull) View.VISIBLE else View.GONE
+        compactRow?.visibility = if (showFull) View.GONE else View.VISIBLE
+        flipButton?.visibility = if (showFull) View.VISIBLE else View.GONE
+        exitButton?.visibility = if (showFull) View.VISIBLE else View.GONE
+        manualButton?.text = if (showFull) "👆 手动" else "👆"
+        applyAutoVisual()
     }
 
-    private fun applyCompactAutoVisual() {
-        if (!compact) return
-        autoCheckbox?.setBackgroundColor(
-            if (autoEnabled) 0x331B66FF.toInt() else 0
-        )
+    private fun applyAutoVisual() {
+        val highlight = if (autoEnabled) 0x331B66FF.toInt() else 0
+        autoCheckbox?.setBackgroundColor(highlight)
+        compactAuto?.setBackgroundColor(highlight)
     }
 
     fun setFlipModeLabel(mode: Int) {
@@ -298,7 +393,9 @@ class ToolbarManager(
     }
 
     fun detach() {
-        toolbarView?.let { windowManager.removeView(it) }
+        toolbarView?.let {
+            try { windowManager.removeView(it) } catch (_: Exception) {}
+        }
         toolbarView = null
         attached = false
     }

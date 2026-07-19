@@ -1,7 +1,22 @@
 # Debugging with ADB (ScreenFlip)
 
-ADB: `C:\Users\liyih\AppData\Local\Android\Sdk\platform-tools\adb.exe`
-(device already connected; `adb devices` to confirm).
+## Environment paths (use these every session — don't rediscover)
+
+```
+$ADB  = "C:\Users\liyih\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+$JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+```
+
+- ADB binary lives under the Android SDK platform-tools.
+- The system has **NO system JDK**, so `JAVA_HOME` must be set manually to Android
+  Studio's bundled JBR before any `gradlew` invocation:
+  ```powershell
+  $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+  ```
+  (The old AGENTS.md note pointed at `C:\Program Files\Android\Studio\jbr` which does
+  NOT exist — the real path has `Android Studio` in it.)
+
+(device already connected; `& $adb devices` to confirm).
 
 The app registers a debug `BroadcastReceiver` (`MirrorService.ACTION_DEBUG`) on the
 running service that drives the state machine, so most flows run WITHOUT touching the
@@ -10,16 +25,23 @@ screen.
 ## Commands (PowerShell)
 
 ```
-$adb = "C:\Users\liyih\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+$adb = "C:\Users\liyihc\AppData\Local\Android\Sdk\platform-tools\adb.exe"
 & $adb shell am start -n com.liyihc.screenflipper/.MainActivity        # launch / prepare UI
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd start   # request projection
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd auto    # TOGGLE Auto Mode on/off
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd manual  # manual: capture immediately
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd reset   # back to WAITING
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd flip    # cycle flip mode
+& $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd stop    # stop service + cancel everything
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DISPLAY_CLOSE          # dismiss the preview (DisplayActivity)
 & $adb logcat -d -s ScreenFlip                                          # app logs
 ```
+
+NOTE: all control commands go through the `ACTION_DEBUG` broadcast with a `cmd`
+extra — including **stop** (`--es cmd stop`), which stops the service and cancels
+all timers. Do NOT send `ACTION_STOP` via `am broadcast`; the service is not a
+registered receiver for it and the broadcast is dropped (and `am start-service`
+is blocked by the non-exported service permission).
 
 Behavior notes (post auto-loop redesign):
 - `cmd manual` captures a Frame **immediately** and shows the Display (no
