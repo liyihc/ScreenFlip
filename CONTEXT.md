@@ -38,19 +38,36 @@ Flip and the showing of the resulting Snapshot. Auto and Manual are the two kind
 of Operation.
 _Avoid_: capture session, run
 
-**Auto Operation**:
-An Operation where the Frame is captured automatically after a fixed Pause
-Duration elapses.
-_Avoid_: timed capture
+**Auto Mode**:
+A persistent (while-running) mode driven by an in-memory `autoEnabled` switch.
+When on, the app runs an **Auto Loop**: each time the user dismisses the Display
+and returns to the Toolbar, a Pause Duration countdown starts and, on elapse,
+automatically captures a Frame and re-enters the Display — repeating until the
+switch is turned off or the service exits. Auto Mode is one of two parallel,
+independent modes alongside Manual Mode.
+_Avoid_: timed capture, auto operation (singular — it is a loop, not a one-shot)
 
-**Manual Operation**:
-An Operation where the Frame is captured only after the user signals completion
-(e.g. taps the notification "完成截图").
+**Auto Loop**:
+The repeating cycle within Auto Mode: dismiss Display → wait Pause Duration →
+auto-capture Frame → show Display → dismiss → … The countdown anchor is the
+moment the Display is dismissed, not the moment the Auto switch is flipped.
+_Avoid_: timer, cycle
+
+**Manual Mode**:
+The other mode alongside Auto Mode. A single Manual Operation: the user taps
+"手动" and the Frame is captured immediately, entering the Display. Manual has
+priority over Auto: while a Manual-captured Display is shown, the Auto Loop is
+suspended; on dismiss, the Auto Loop resets its countdown from zero.
 _Avoid_: on-demand capture
 
+**autoEnabled**:
+In-memory boolean switch for Auto Mode. NOT persisted (not in DataStore) — must
+be turned on manually each run.
+_Avoid_: auto state, auto flag
+
 **Pause Duration**:
-The delay (default 5000 ms) between arming an Auto Operation and the automatic
-capture of the Frame.
+The interval (user-set in seconds, default 5s = 5000 ms) between dismissing the
+Display and the next automatic Frame capture in the Auto Loop.
 _Avoid_: countdown, delay, timer
 
 **Arming**:
@@ -79,12 +96,19 @@ _Avoid_: preview, flipped view
 
 **Toolbar**:
 The draggable floating window that lets the user arm Operations, cycle Flip Mode,
-and exit. Hidden while an Operation is in flight.
+and exit. Hidden while an Operation is in flight. Its title bar shows the app name.
 _Avoid_: controls, panel
+
+**Compact Mode**:
+A Toolbar presentation showing only the Auto and Manual controls (as icons), with
+the other buttons hidden. The Auto control indicates its on/off state visually.
+_Avoid_: mini mode, collapsed
 
 ### State
 
 **State**:
 The MirrorService state-machine value: IDLE, WAITING, OPERATING_AUTO,
 OPERATING_MANUAL, SHOWING. It tracks where the app is in the Operation lifecycle.
+Auto Mode's looping is layered on top of these States via `autoEnabled` + a
+suspended/resumed countdown, rather than living entirely inside OPERATING_AUTO.
 _Avoid_: status (status is the human-readable label shown in the Toolbar/notification; State is the machine value)

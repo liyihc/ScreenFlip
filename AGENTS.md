@@ -26,3 +26,12 @@ $env:JAVA_HOME = "C:\Program Files\Android\Studio\jbr"
   see `docs/DEBUGGING.md` for the full command table and verification loop.
 - MIUI/HyperOS clamp `TYPE_APPLICATION_OVERLAY` to `alpha=0.8` (system limit) — the
   flipped image is shown by `DisplayActivity` (opaque), not an overlay.
+
+## After finishing code changes
+
+Before declaring a task done, **confirm with the user whether to start the on-device
+debugging flow.** This flow is: the human taps the screen-recording permission grant,
+then everything else runs hands-free via ADB broadcasts (see `docs/DEBUGGING.md`). Do
+not assume the work is verified just because `assembleDebug` passed — real verification
+requires the device + the human permission tap + ADB-driven state checks. Ask the user
+to approve entering this flow rather than running it unprompted.

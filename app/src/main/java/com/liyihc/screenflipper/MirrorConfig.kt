@@ -1,37 +1,62 @@
 package com.liyihc.screenflipper
 
 import android.content.Context
-import android.content.SharedPreferences
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 class MirrorConfig(context: Context) {
 
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = PREFS_NAME)
+    private val dataStore = context.applicationContext.dataStore
+
+    val pauseDurationFlow: Flow<Long> = dataStore.data.map { it[KEY_PAUSE_DURATION] ?: 5000L }
+    val toolbarXFlow: Flow<Int> = dataStore.data.map { it[KEY_TOOLBAR_X] ?: 100 }
+    val toolbarYFlow: Flow<Int> = dataStore.data.map { it[KEY_TOOLBAR_Y] ?: 300 }
+    val renderFpsCapFlow: Flow<Int> = dataStore.data.map { it[KEY_RENDER_FPS_CAP] ?: 0 }
+    val flipModeFlow: Flow<Int> = dataStore.data.map { it[KEY_FLIP_MODE] ?: 0 }
+    val runningFlow: Flow<Boolean> = dataStore.data.map { it[KEY_RUNNING] ?: false }
 
     var pauseDuration: Long
-        get() = prefs.getLong(KEY_PAUSE_DURATION, 5000L)
-        set(value) = prefs.edit().putLong(KEY_PAUSE_DURATION, value).apply()
+        get() = runBlockingGet(KEY_PAUSE_DURATION, 5000L)
+        set(value) = runBlockingEdit { it[KEY_PAUSE_DURATION] = value }
 
     var toolbarX: Int
-        get() = prefs.getInt(KEY_TOOLBAR_X, 100)
-        set(value) = prefs.edit().putInt(KEY_TOOLBAR_X, value).apply()
+        get() = runBlockingGet(KEY_TOOLBAR_X, 100)
+        set(value) = runBlockingEdit { it[KEY_TOOLBAR_X] = value }
 
     var toolbarY: Int
-        get() = prefs.getInt(KEY_TOOLBAR_Y, 300)
-        set(value) = prefs.edit().putInt(KEY_TOOLBAR_Y, value).apply()
+        get() = runBlockingGet(KEY_TOOLBAR_Y, 300)
+        set(value) = runBlockingEdit { it[KEY_TOOLBAR_Y] = value }
 
     var renderFpsCap: Int
-        get() = prefs.getInt(KEY_RENDER_FPS_CAP, 0)
-        set(value) = prefs.edit().putInt(KEY_RENDER_FPS_CAP, value).apply()
+        get() = runBlockingGet(KEY_RENDER_FPS_CAP, 0)
+        set(value) = runBlockingEdit { it[KEY_RENDER_FPS_CAP] = value }
 
     var running: Boolean
-        get() = prefs.getBoolean(KEY_RUNNING, false)
-        set(value) = prefs.edit().putBoolean(KEY_RUNNING, value).apply()
+        get() = runBlockingGet(KEY_RUNNING, false)
+        set(value) = runBlockingEdit { it[KEY_RUNNING] = value }
 
     // 翻转模式：0=顺时针旋转180度, 1=左右镜像, 2=左右镜像+顺时针旋转180度
     var flipMode: Int
-        get() = prefs.getInt(KEY_FLIP_MODE, 0)
-        set(value) = prefs.edit().putInt(KEY_FLIP_MODE, value).apply()
+        get() = runBlockingGet(KEY_FLIP_MODE, 0)
+        set(value) = runBlockingEdit { it[KEY_FLIP_MODE] = value }
+
+    private fun <T> runBlockingGet(key: Preferences.Key<T>, default: T): T {
+        return kotlinx.coroutines.runBlocking { dataStore.data.map { it[key] ?: default }.first() }
+    }
+
+    private fun runBlockingEdit(block: suspend (MutablePreferences) -> Unit) {
+        kotlinx.coroutines.runBlocking { dataStore.edit(block) }
+    }
 
     companion object {
         const val FLIP_ROTATE_180 = 0
@@ -39,11 +64,11 @@ class MirrorConfig(context: Context) {
         const val FLIP_MIRROR_ROTATE_180 = 2
 
         private const val PREFS_NAME = "screen_flip_prefs"
-        private const val KEY_PAUSE_DURATION = "pause_duration"
-        private const val KEY_TOOLBAR_X = "toolbar_x"
-        private const val KEY_TOOLBAR_Y = "toolbar_y"
-        private const val KEY_RENDER_FPS_CAP = "render_fps_cap"
-        private const val KEY_RUNNING = "running"
-        private const val KEY_FLIP_MODE = "flip_mode"
+        private val KEY_PAUSE_DURATION = longPreferencesKey("pause_duration")
+        private val KEY_TOOLBAR_X = intPreferencesKey("toolbar_x")
+        private val KEY_TOOLBAR_Y = intPreferencesKey("toolbar_y")
+        private val KEY_RENDER_FPS_CAP = intPreferencesKey("render_fps_cap")
+        private val KEY_RUNNING = booleanPreferencesKey("running")
+        private val KEY_FLIP_MODE = intPreferencesKey("flip_mode")
     }
 }
