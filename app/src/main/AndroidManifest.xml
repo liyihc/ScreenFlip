@@ -27,6 +27,13 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".DisplayActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ScreenFlipper"
+            android:taskAffinity=""
+            android:excludeFromRecents="true" />
+
         <service
             android:name=".MirrorService"
             android:exported="false"

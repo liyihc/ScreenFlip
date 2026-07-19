@@ -34,7 +34,8 @@ class OverlayManager(private val context: Context) {
             }
             width = WindowManager.LayoutParams.MATCH_PARENT
             height = WindowManager.LayoutParams.MATCH_PARENT
-            format = android.graphics.PixelFormat.TRANSLUCENT
+            format = android.graphics.PixelFormat.OPAQUE
+            alpha = 1.0f
             flags = WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or

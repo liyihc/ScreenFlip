@@ -22,6 +22,7 @@ class ToolbarManager(
         fun onManualClicked()
         fun onResetClicked()
         fun onExitClicked()
+        fun onFlipModeClicked()
     }
 
     private val windowManager: WindowManager =
@@ -33,6 +34,7 @@ class ToolbarManager(
     private var manualButton: Button? = null
     private var resetButton: Button? = null
     private var exitButton: Button? = null
+    private var flipButton: Button? = null
     private var statusText: TextView? = null
     private var attached = false
 
@@ -76,6 +78,10 @@ class ToolbarManager(
             visibility = View.GONE
             setOnClickListener { callback.onResetClicked() }
         }
+        val flip = Button(context).apply {
+            text = "🔁 翻转:旋转180°"
+            setOnClickListener { callback.onFlipModeClicked() }
+        }
         val exit = Button(context).apply {
             text = "⏹ 退出"
             setOnClickListener { callback.onExitClicked() }
@@ -86,6 +92,7 @@ class ToolbarManager(
         layout.addView(auto)
         layout.addView(manual)
         layout.addView(reset)
+        layout.addView(flip)
         layout.addView(exit)
 
         val params = WindowManager.LayoutParams().apply {
@@ -118,6 +125,7 @@ class ToolbarManager(
         manualButton = manual
         resetButton = reset
         exitButton = exit
+        flipButton = flip
         attached = true
     }
 
@@ -192,6 +200,15 @@ class ToolbarManager(
         resetButton?.visibility = View.GONE
         exitButton?.visibility = View.VISIBLE
         statusText?.text = "点击开始"
+    }
+
+    fun setFlipModeLabel(mode: Int) {
+        val label = when (mode) {
+            MirrorConfig.FLIP_MIRROR -> "🔁 翻转:左右镜像"
+            MirrorConfig.FLIP_MIRROR_ROTATE_180 -> "🔁 翻转:镜像+旋转180°"
+            else -> "🔁 翻转:旋转180°"
+        }
+        flipButton?.text = label
     }
 
     fun hide() {

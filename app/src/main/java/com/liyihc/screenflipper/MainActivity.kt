@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.d("ScreenFlip", "MainActivity onCreate action=${intent?.action}")
         // 不加载任何布局：本 Activity 仅作中转，不展示主界面
 
         if (intent?.action == ACTION_REQUEST_PROJECTION) {
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startOrRequestProjection() {
+        android.util.Log.d("ScreenFlip", "startOrRequestProjection launching=$launching")
         if (launching) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
             !Settings.canDrawOverlays(this)
@@ -88,10 +90,16 @@ class MainActivity : AppCompatActivity() {
         }
         // 权限齐全：启动悬浮窗服务（仅准备 UI）并退出
         launching = true
+        android.util.Log.d("ScreenFlip", "launching MirrorService ACTION_START")
         val startIntent = Intent(this, MirrorService::class.java).apply {
             action = MirrorService.ACTION_START
         }
-        startForegroundService(startIntent)
+        try {
+            startForegroundService(startIntent)
+            android.util.Log.d("ScreenFlip", "startForegroundService called ok")
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenFlip", "startForegroundService failed: ${e.message}")
+        }
         finish()
     }
 

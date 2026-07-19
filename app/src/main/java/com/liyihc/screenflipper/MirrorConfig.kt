@@ -28,12 +28,22 @@ class MirrorConfig(context: Context) {
         get() = prefs.getBoolean(KEY_RUNNING, false)
         set(value) = prefs.edit().putBoolean(KEY_RUNNING, value).apply()
 
+    // 翻转模式：0=顺时针旋转180度, 1=左右镜像, 2=左右镜像+顺时针旋转180度
+    var flipMode: Int
+        get() = prefs.getInt(KEY_FLIP_MODE, 0)
+        set(value) = prefs.edit().putInt(KEY_FLIP_MODE, value).apply()
+
     companion object {
+        const val FLIP_ROTATE_180 = 0
+        const val FLIP_MIRROR = 1
+        const val FLIP_MIRROR_ROTATE_180 = 2
+
         private const val PREFS_NAME = "screen_flip_prefs"
         private const val KEY_PAUSE_DURATION = "pause_duration"
         private const val KEY_TOOLBAR_X = "toolbar_x"
         private const val KEY_TOOLBAR_Y = "toolbar_y"
         private const val KEY_RENDER_FPS_CAP = "render_fps_cap"
         private const val KEY_RUNNING = "running"
+        private const val KEY_FLIP_MODE = "flip_mode"
     }
 }
