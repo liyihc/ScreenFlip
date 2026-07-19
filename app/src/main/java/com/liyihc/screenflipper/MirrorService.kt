@@ -1,0 +1,224 @@
+package com.liyihc.screenflipper
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Activity
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.hardware.display.DisplayManager
+import android.media.projection.MediaProjection
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.util.DisplayMetrics
+import android.view.WindowManager
+
+class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCallback {
+
+    enum class State { WAITING, OPERATING_AUTO, OPERATING_MANUAL, SHOWING }
+
+    private lateinit var mirrorEngine: MirrorEngine
+    private lateinit var overlayManager: OverlayManager
+    private lateinit var toolbarManager: ToolbarManager
+    private lateinit var config: MirrorConfig
+
+    private var mediaProjection: MediaProjection? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var restoreRunnable: Runnable? = null
+    private var state: State = State.WAITING
+
+    override fun onCreate() {
+        super.onCreate()
+        config = MirrorConfig(this)
+        overlayManager = OverlayManager(this)
+        toolbarManager = ToolbarManager(this, config, this)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_START -> {
+                val data = intent.getParcelableExtra<Intent>(EXTRA_PROJECTION_DATA)
+                if (data != null) {
+                    startMirroring(data)
+                }
+            }
+            ACTION_MANUAL_DONE -> {
+                if (state == State.OPERATING_MANUAL) {
+                    captureNow()
+                }
+            }
+            ACTION_STOP -> {
+                stopMirroring()
+                stopSelf()
+            }
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun startMirroring(data: Intent) {
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, buildNotification("镜像工具待命"))
+
+        val projectionManager =
+            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        mediaProjection = projectionManager.getMediaProjection(Activity.RESULT_OK, data)
+
+        val metrics = DisplayMetrics()
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = wm.currentWindowMetrics.bounds
+            metrics.widthPixels = bounds.width()
+            metrics.heightPixels = bounds.height()
+            metrics.densityDpi = resources.configuration.densityDpi
+        } else {
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getMetrics(metrics)
+        }
+
+        overlayManager.attach()
+        toolbarManager.attach()
+        toolbarManager.setWaiting()
+
+        mirrorEngine = MirrorEngine(this)
+        mirrorEngine.start(
+            mediaProjection!!,
+            metrics.widthPixels,
+            metrics.heightPixels,
+            metrics.densityDpi
+        )
+    }
+
+    private fun captureNow() {
+        removeRestoreRunnable()
+        toolbarManager.hide()
+        overlayManager.hide()
+        handler.postDelayed({
+            mirrorEngine.captureFlipped()
+        }, 150)
+    }
+
+    override fun onAutoClicked() {
+        if (state == State.SHOWING || state == State.OPERATING_AUTO || state == State.OPERATING_MANUAL) return
+        state = State.OPERATING_AUTO
+        toolbarManager.setOperating(true)
+        toolbarManager.hide()
+        overlayManager.hide()
+        updateNotification("操作中…${(config.pauseDuration / 1000)}秒后显示")
+        restoreRunnable = Runnable { mirrorEngine.captureFlipped() }
+        handler.postDelayed(restoreRunnable!!, config.pauseDuration)
+    }
+
+    override fun onManualClicked() {
+        if (state == State.SHOWING || state == State.OPERATING_AUTO || state == State.OPERATING_MANUAL) return
+        state = State.OPERATING_MANUAL
+        toolbarManager.setOperating(false)
+        toolbarManager.hide()
+        overlayManager.hide()
+        updateNotification("操作后点通知完成")
+    }
+
+    override fun onResetClicked() {
+        state = State.WAITING
+        overlayManager.hide()
+        toolbarManager.setWaiting()
+        toolbarManager.show()
+        updateNotification("镜像工具待命")
+    }
+
+    override fun onSnapshotReady(bitmap: Bitmap) {
+        overlayManager.show(bitmap)
+        toolbarManager.setShowing()
+        toolbarManager.show()
+        state = State.SHOWING
+        updateNotification("已显示翻转画面")
+    }
+
+    override fun onCaptureError() {
+        toolbarManager.setWaiting()
+        toolbarManager.show()
+        state = State.WAITING
+        updateNotification("捕获失败，请重试")
+    }
+
+    private fun removeRestoreRunnable() {
+        restoreRunnable?.let { handler.removeCallbacks(it) }
+        restoreRunnable = null
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Screen Flip",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(channel)
+        }
+    }
+
+    private fun buildNotification(text: String): Notification {
+        val doneIntent = Intent(this, MirrorService::class.java).apply {
+            action = ACTION_MANUAL_DONE
+        }
+        val donePi = PendingIntent.getService(
+            this, 1, doneIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
+        val stopIntent = Intent(this, MirrorService::class.java).apply { action = ACTION_STOP }
+        val stopPi = PendingIntent.getService(
+            this, 2, stopIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        return builder
+            .setContentTitle("Screen Flipper")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_menu_gallery)
+            .addAction(android.R.drawable.ic_menu_send, "完成截图", donePi)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPi)
+            .build()
+    }
+
+    private fun updateNotification(text: String) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIFICATION_ID, buildNotification(text))
+    }
+
+    private fun stopMirroring() {
+        removeRestoreRunnable()
+        mirrorEngine.stop()
+        overlayManager.detach()
+        toolbarManager.detach()
+        mediaProjection?.stop()
+        mediaProjection = null
+        stopForeground(true)
+    }
+
+    override fun onDestroy() {
+        stopMirroring()
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    companion object {
+        const val ACTION_START = "com.liyihc.screenflipper.ACTION_START"
+        const val ACTION_STOP = "com.liyihc.screenflipper.ACTION_STOP"
+        const val ACTION_MANUAL_DONE = "com.liyihc.screenflipper.ACTION_MANUAL_DONE"
+        const val EXTRA_PROJECTION_DATA = "projection_data"
+        private const val CHANNEL_ID = "screen_flip_channel"
+        private const val NOTIFICATION_ID = 1001
+    }
+}
