@@ -242,6 +242,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             override fun run() {
                 if (state != AppState.State.OPERATING_AUTO) return
                 AppState.setShowText("${remaining}秒后截图")
+                AppState.setCountdownSeconds(remaining)
                 remaining--
                 if (remaining >= 0) {
                     handler.postDelayed(this, 1000)
@@ -261,6 +262,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                 removeRestoreRunnable()
                 removeCountdownRunnable()
                 AppState.setShowText("")
+                AppState.setCountdownSeconds(-1)
                 state = AppState.State.WAITING
                 toolbarManager.show()
                 updateNotification("镜像工具待命")
@@ -306,10 +308,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         removeRestoreRunnable()
         removeCountdownRunnable()
         AppState.setShowText("")
+        AppState.setCountdownSeconds(-1)
     }
 
     override fun onFlipModeClicked() {
-        val next = (config.flipMode + 1) % 3
+        val next = (config.flipMode + 1) % 4
         config.flipMode = next
         AppState.setFlipMode(next)
         toolbarManager.setFlipModeLabel(next)

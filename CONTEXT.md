@@ -109,11 +109,19 @@ The full-screen Display Activity showing the Snapshot. "预览窗" = Display,
 _Avoid_: floating window, overlay
 
 **Compact Mode**:
-A Toolbar presentation showing only the Auto and Manual controls as icons (`⏱` /
-`👆`) on a single row, with other buttons and the pause-input hidden. The Auto
-control indicates its on/off state via background highlight. Full Mode shows the
-same controls with text, Auto and Manual each on their own row, the Auto row
-carrying the pause-input + `S` unit.
+A Toolbar presentation (entered via the **Toolbar Manipulation gesture**'s Compact
+Toggle) that changes the Toolbar's layout *per State*, in contrast to Full Mode
+which shows the same text-bearing controls in all states. In Compact Mode:
+- **IDLE**: only the Start control is shown, as a pure icon (`▶`) — no text. The
+  title is still shown (it is always shown in Compact Mode).
+- **WAITING**: the single control row is `[⏱ checkbox] [👆 manual icon]`. The
+  checkbox's *text label* carries the countdown: `⏱` when Auto is off, or `⏱{n}`
+  (e.g. `⏱5`) showing the live remaining Auto Loop seconds when Auto is on. The
+  countdown is read-only text, not the editable pause-input.
+- **SHOWING (Preview)**: only the Flip control is shown, as a pure icon (`🔁`) —
+  the WAITING row (checkbox + manual icon) is hidden.
+Compact Mode uses plain `TextView`s (no button background) for Start / Manual /
+Flip, so they render as small icons. Exit is only available in Full Mode.
 _Avoid_: mini mode, collapsed
 
 ### State

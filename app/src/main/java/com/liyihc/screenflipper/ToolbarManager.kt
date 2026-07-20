@@ -47,6 +47,7 @@ class ToolbarManager(
     private var toolbarView: LinearLayout? = null
     private var titleText: TextView? = null
     private var startButton: Button? = null
+    private var startIcon: TextView? = null
     private var fullAutoRow: LinearLayout? = null
     private var autoCheckbox: CheckBox? = null
     private var autoLabelView: TextView? = null
@@ -59,7 +60,8 @@ class ToolbarManager(
     private var statusText: TextView? = null
     private var compactRow: LinearLayout? = null
     private var compactAuto: CheckBox? = null
-    private var compactManual: Button? = null
+    private var compactManual: TextView? = null
+    private var compactFlip: TextView? = null
     private var attached = false
 
     private var initialX = 0
@@ -98,6 +100,15 @@ class ToolbarManager(
         val start = Button(context).apply {
             text = "▶ 开始"
             setOnClickListener { callback.onStartClicked() }
+        }
+        val startIconView = TextView(context).apply {
+            text = "▶"
+            textSize = 28f
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            setPadding(12, 12, 12, 12)
+            setOnClickListener { callback.onStartClicked() }
+            visibility = View.GONE
         }
 
         val auto = CheckBox(context).apply {
@@ -170,21 +181,27 @@ class ToolbarManager(
                 if (isChecked != autoEnabled) callback.onAutoToggled(isChecked)
             }
         }
-        val cAutoLabel = TextView(context).apply {
-            text = "⏱"
-            setTextColor(0xFFFFFFFF.toInt())
-            textSize = 14f
-            setPadding(8, 0, 0, 0)
-        }
-        val cManual = Button(context).apply {
+        val cManual = TextView(context).apply {
             text = "👆"
+            textSize = 22f
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            setPadding(12, 4, 12, 4)
             setOnClickListener { callback.onManualClicked() }
+        }
+        val cFlip = TextView(context).apply {
+            text = "🔁"
+            textSize = 22f
+            setTextColor(0xFFFFFFFF.toInt())
+            gravity = Gravity.CENTER
+            setPadding(12, 4, 12, 4)
+            setOnClickListener { callback.onFlipModeClicked() }
+            visibility = View.GONE
         }
         val cRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(cAuto)
-            addView(cAutoLabel)
             addView(cManual)
             visibility = View.GONE
         }
@@ -192,10 +209,12 @@ class ToolbarManager(
         root.addView(title)
         root.addView(status)
         root.addView(start)
+        root.addView(startIconView)
         root.addView(fullAuto)
         root.addView(fullManual)
         root.addView(cRow)
         root.addView(flip)
+        root.addView(cFlip)
         root.addView(exit)
 
         val params = WindowManager.LayoutParams().apply {
@@ -225,6 +244,7 @@ class ToolbarManager(
         titleText = title
         statusText = status
         startButton = start
+        startIcon = startIconView
         fullAutoRow = fullAuto
         autoCheckbox = auto
         autoLabelView = autoLabel
@@ -237,6 +257,7 @@ class ToolbarManager(
         compactRow = cRow
         compactAuto = cAuto
         compactManual = cManual
+        compactFlip = cFlip
         attached = true
 
         scope.launch {
@@ -245,9 +266,17 @@ class ToolbarManager(
                 AppState.compactMode,
                 AppState.autoEnabled,
                 AppState.showText,
-                AppState.flipMode
-            ) { state, compact, autoEnabled, showText, flipMode ->
-                UiModel(state, compact, autoEnabled, showText, flipMode)
+                AppState.flipMode,
+                AppState.countdownSeconds
+            ) { arrays: Array<*> ->
+                UiModel(
+                    arrays[0] as AppState.State,
+                    arrays[1] as Boolean,
+                    arrays[2] as Boolean,
+                    arrays[3] as String,
+                    arrays[4] as Int,
+                    arrays[5] as Long
+                )
             }
                 .onEach { updateUi(it) }
                 .collect {}
@@ -259,7 +288,8 @@ class ToolbarManager(
         val compact: Boolean,
         val autoEnabled: Boolean,
         val showText: String,
-        val flipMode: Int
+        val flipMode: Int,
+        val countdown: Long
     )
 
     private fun updateUi(m: UiModel) {
@@ -271,9 +301,11 @@ class ToolbarManager(
         val waiting = s == AppState.State.WAITING
         val operating = s == AppState.State.OPERATING_AUTO ||
             s == AppState.State.OPERATING_MANUAL
+        val showing = s == AppState.State.SHOWING
         val full = !m.compact
 
-        startButton?.visibility = if (idle) View.VISIBLE else View.GONE
+        startButton?.visibility = if (full && idle) View.VISIBLE else View.GONE
+        startIcon?.visibility = if (!full && idle) View.VISIBLE else View.GONE
 
         val rowsVisible = full && (waiting || operating)
         fullAutoRow?.visibility = if (rowsVisible) View.VISIBLE else View.GONE
@@ -281,12 +313,10 @@ class ToolbarManager(
 
         compactRow?.visibility = if (!full && (waiting || operating)) View.VISIBLE else View.GONE
 
-        val showing = s == AppState.State.SHOWING
         flipButton?.visibility = if (full && showing) View.VISIBLE else View.GONE
+        compactFlip?.visibility = if (!full && showing) View.VISIBLE else View.GONE
 
         exitButton?.visibility = if (full && (waiting || showing)) View.VISIBLE else View.GONE
-
-        manualButton?.text = if (m.compact) "👆" else "👆 手动"
 
         val highlight = if (m.autoEnabled) 0x331B66FF.toInt() else 0
         autoCheckbox?.setBackgroundColor(highlight)
@@ -294,9 +324,15 @@ class ToolbarManager(
         if (autoCheckbox?.isChecked != m.autoEnabled) autoCheckbox?.isChecked = m.autoEnabled
         if (compactAuto?.isChecked != m.autoEnabled) compactAuto?.isChecked = m.autoEnabled
 
+        if (m.autoEnabled && m.countdown >= 0) {
+            compactAuto?.text = "${m.countdown}⏱"
+        } else {
+            compactAuto?.text = "⏱"
+        }
+
         setFlipModeLabel(m.flipMode)
 
-        if (m.showText.isBlank()) {
+        if (m.compact || m.showText.isBlank()) {
             statusText?.visibility = View.GONE
         } else {
             statusText?.text = m.showText
@@ -361,6 +397,7 @@ class ToolbarManager(
         val label = when (mode) {
             MirrorConfig.FLIP_MIRROR -> "🔁 翻转:左右镜像"
             MirrorConfig.FLIP_MIRROR_ROTATE_180 -> "🔁 翻转:镜像+旋转180°"
+            MirrorConfig.FLIP_NONE -> "🔁 翻转:无翻转"
             else -> "🔁 翻转:旋转180°"
         }
         flipButton?.text = label

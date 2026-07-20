@@ -45,7 +45,7 @@ class MirrorConfig(context: Context) {
         get() = runBlockingGet(KEY_RUNNING, false)
         set(value) = runBlockingEdit { it[KEY_RUNNING] = value }
 
-    // 翻转模式：0=顺时针旋转180度, 1=左右镜像, 2=左右镜像+顺时针旋转180度
+    // 翻转模式：0=顺时针旋转180度, 1=左右镜像, 2=左右镜像+顺时针旋转180度, 3=无翻转(原图)
     var flipMode: Int
         get() = runBlockingGet(KEY_FLIP_MODE, 0)
         set(value) = runBlockingEdit { it[KEY_FLIP_MODE] = value }
@@ -62,6 +62,7 @@ class MirrorConfig(context: Context) {
         const val FLIP_ROTATE_180 = 0
         const val FLIP_MIRROR = 1
         const val FLIP_MIRROR_ROTATE_180 = 2
+        const val FLIP_NONE = 3
 
         private const val PREFS_NAME = "screen_flip_prefs"
         private val KEY_PAUSE_DURATION = longPreferencesKey("pause_duration")

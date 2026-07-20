@@ -30,6 +30,9 @@ object AppState {
     private val _showText = MutableStateFlow("")
     val showText: StateFlow<String> = _showText.asStateFlow()
 
+    private val _countdownSeconds = MutableStateFlow<Long>(-1)
+    val countdownSeconds: StateFlow<Long> = _countdownSeconds.asStateFlow()
+
     fun setState(value: State) {
         _state.value = value
     }
@@ -58,5 +61,9 @@ object AppState {
 
     fun setShowText(text: String) {
         _showText.value = text
+    }
+
+    fun setCountdownSeconds(seconds: Long) {
+        _countdownSeconds.value = seconds
     }
 }

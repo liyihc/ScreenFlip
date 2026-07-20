@@ -19,6 +19,8 @@ object FlipUtils {
                         (width - 1 - sx) to sy
                     MirrorConfig.FLIP_MIRROR_ROTATE_180 ->
                         sx to (height - 1 - sy)
+                    MirrorConfig.FLIP_NONE ->
+                        sx to sy
                     else -> // FLIP_ROTATE_180
                         (width - 1 - sx) to (height - 1 - sy)
                 }
