@@ -55,7 +55,10 @@ class DisplayActivity : Activity() {
                 .collect {}
         }
 
-        view.setOnClickListener { finish() }
+        view.setOnClickListener {
+            sendBroadcast(Intent(ACTION_DISMISSING))
+            finish()
+        }
         view.isClickable = true
         view.isFocusable = true
 
@@ -87,6 +90,7 @@ class DisplayActivity : Activity() {
 
     companion object {
         const val ACTION_DISMISSED = "com.liyihc.screenflipper.ACTION_DISPLAY_DISMISSED"
+        const val ACTION_DISMISSING = "com.liyihc.screenflipper.ACTION_DISPLAY_DISMISSING"
         const val ACTION_CLOSE = "com.liyihc.screenflipper.ACTION_DISPLAY_CLOSE"
     }
 }

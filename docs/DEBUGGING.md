@@ -3,8 +3,8 @@
 ## Environment paths (use these every session — don't rediscover)
 
 ```
-$ADB  = "C:\Users\liyih\AppData\Local\Android\Sdk\platform-tools\adb.exe"
-$JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$adb  = "C:\Users\liyih\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 ```
 
 - ADB binary lives under the Android SDK platform-tools.
@@ -25,7 +25,6 @@ screen.
 ## Commands (PowerShell)
 
 ```
-$adb = "C:\Users\liyihc\AppData\Local\Android\Sdk\platform-tools\adb.exe"
 & $adb shell am start -n com.liyihc.screenflipper/.MainActivity        # launch / prepare UI
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd start   # request projection
 & $adb shell am broadcast -a com.liyihc.screenflipper.ACTION_DEBUG --es cmd auto    # TOGGLE Auto Mode on/off

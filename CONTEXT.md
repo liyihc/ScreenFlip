@@ -85,14 +85,10 @@ _Avoid_: capture permission, screen permission (too vague — it is specifically
 
 **Display**:
 The full-screen opaque Activity that shows the Snapshot. It is not an overlay; it
-replaces the screen content while visible, and a tap dismisses it.
-_Avoid_: overlay, preview (those refer to different things — see Overlay)
-
-**Overlay**:
-A hidden full-screen black backdrop window used only to blank the screen during
-capture. It does NOT show the flipped image. Confusingly named in code; in the
-domain it is a capture backdrop, distinct from the Display.
-_Avoid_: preview, flipped view
+replaces the screen content while visible, and a tap dismisses it. Historically the
+flipped image was also shown via a separate Overlay window, but that was removed —
+the Display is now the only full-screen window and the sole renderer of the Snapshot.
+_Avoid_: overlay, preview
 
 **Toolbar**:
 The draggable floating window (悬浮窗) that lets the user arm Operations, cycle
@@ -110,7 +106,7 @@ _Avoid_: drag, long-click (these name one outcome, not the gesture as a whole)
 **Preview Window**:
 The full-screen Display Activity showing the Snapshot. "预览窗" = Display,
 "悬浮窗" = Toolbar; never conflate.
-_Avoid_: floating window, overlay (those are the Toolbar / capture backdrop)
+_Avoid_: floating window, overlay
 
 **Compact Mode**:
 A Toolbar presentation showing only the Auto and Manual controls as icons (`⏱` /

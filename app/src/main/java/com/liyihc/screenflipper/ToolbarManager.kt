@@ -18,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
@@ -143,6 +144,10 @@ class ToolbarManager(
 
         val manual = Button(context).apply {
             text = "👆 手动"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             setOnClickListener { callback.onManualClicked() }
         }
         val fullManual = LinearLayout(context).apply {
@@ -235,16 +240,67 @@ class ToolbarManager(
         attached = true
 
         scope.launch {
-            AppState.showText
-                .onEach { text ->
-                    if (text.isBlank()) {
-                        statusText?.visibility = View.GONE
-                    } else {
-                        statusText?.text = text
-                        statusText?.visibility = View.VISIBLE
-                    }
-                }
+            combine(
+                AppState.state,
+                AppState.compactMode,
+                AppState.autoEnabled,
+                AppState.showText,
+                AppState.flipMode
+            ) { state, compact, autoEnabled, showText, flipMode ->
+                UiModel(state, compact, autoEnabled, showText, flipMode)
+            }
+                .onEach { updateUi(it) }
                 .collect {}
+        }
+    }
+
+    private data class UiModel(
+        val state: AppState.State,
+        val compact: Boolean,
+        val autoEnabled: Boolean,
+        val showText: String,
+        val flipMode: Int
+    )
+
+    private fun updateUi(m: UiModel) {
+        compact = m.compact
+        autoEnabled = m.autoEnabled
+
+        val s = m.state
+        val idle = s == AppState.State.IDLE
+        val waiting = s == AppState.State.WAITING
+        val operating = s == AppState.State.OPERATING_AUTO ||
+            s == AppState.State.OPERATING_MANUAL
+        val full = !m.compact
+
+        startButton?.visibility = if (idle) View.VISIBLE else View.GONE
+
+        val rowsVisible = full && (waiting || operating)
+        fullAutoRow?.visibility = if (rowsVisible) View.VISIBLE else View.GONE
+        fullManualRow?.visibility = if (rowsVisible) View.VISIBLE else View.GONE
+
+        compactRow?.visibility = if (!full && (waiting || operating)) View.VISIBLE else View.GONE
+
+        val showing = s == AppState.State.SHOWING
+        flipButton?.visibility = if (full && showing) View.VISIBLE else View.GONE
+
+        exitButton?.visibility = if (full && (waiting || showing)) View.VISIBLE else View.GONE
+
+        manualButton?.text = if (m.compact) "👆" else "👆 手动"
+
+        val highlight = if (m.autoEnabled) 0x331B66FF.toInt() else 0
+        autoCheckbox?.setBackgroundColor(highlight)
+        compactAuto?.setBackgroundColor(highlight)
+        if (autoCheckbox?.isChecked != m.autoEnabled) autoCheckbox?.isChecked = m.autoEnabled
+        if (compactAuto?.isChecked != m.autoEnabled) compactAuto?.isChecked = m.autoEnabled
+
+        setFlipModeLabel(m.flipMode)
+
+        if (m.showText.isBlank()) {
+            statusText?.visibility = View.GONE
+        } else {
+            statusText?.text = m.showText
+            statusText?.visibility = View.VISIBLE
         }
     }
 
@@ -292,87 +348,13 @@ class ToolbarManager(
         return true
     }
 
-    fun setOperating(countdown: Boolean) {
-        startButton?.visibility = View.GONE
-        fullAutoRow?.visibility = if (compact) View.GONE else View.VISIBLE
-        fullManualRow?.visibility = if (compact) View.GONE else View.VISIBLE
-        compactRow?.visibility = View.GONE
-        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        exitButton?.visibility = View.VISIBLE
-        AppState.setShowText(
-            if (countdown) "操作中…(自动)" else "操作中…(手动点通知完成)"
-        )
-    }
-
-    fun setShowing() {
-        startButton?.visibility = View.GONE
-        fullAutoRow?.visibility = View.GONE
-        fullManualRow?.visibility = View.GONE
-        compactRow?.visibility = View.GONE
-        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        exitButton?.visibility = View.VISIBLE
-        AppState.setShowText("已显示翻转画面")
-    }
-
-    fun setWaiting() {
-        startButton?.visibility = View.GONE
-        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        exitButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        if (compact) {
-            fullAutoRow?.visibility = View.GONE
-            fullManualRow?.visibility = View.GONE
-            compactRow?.visibility = View.VISIBLE
-        } else {
-            fullAutoRow?.visibility = View.VISIBLE
-            fullManualRow?.visibility = View.VISIBLE
-            compactRow?.visibility = View.GONE
-        }
-        AppState.setShowText("")
-    }
-
-    fun setIdle() {
-        startButton?.visibility = View.VISIBLE
-        fullAutoRow?.visibility = View.GONE
-        fullManualRow?.visibility = View.GONE
-        compactRow?.visibility = View.GONE
-        flipButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        exitButton?.visibility = if (compact) View.GONE else View.VISIBLE
-        AppState.setShowText("")
-    }
-
-    fun setAutoEnabled(enabled: Boolean) {
-        autoEnabled = enabled
-        autoCheckbox?.isChecked = enabled
-        compactAuto?.isChecked = enabled
-        applyAutoVisual()
-    }
-
     fun setPauseSeconds(seconds: Long) {
         val cur = pauseInput?.text.toString().toLongOrNull()
         if (cur != seconds) pauseInput?.setText(seconds.toString())
     }
 
     fun setCompact(isCompact: Boolean) {
-        compact = isCompact
         AppState.setCompactMode(isCompact)
-        rebuildVisibility()
-    }
-
-    private fun rebuildVisibility() {
-        val showFull = !compact
-        fullAutoRow?.visibility = if (showFull) View.VISIBLE else View.GONE
-        fullManualRow?.visibility = if (showFull) View.VISIBLE else View.GONE
-        compactRow?.visibility = if (showFull) View.GONE else View.VISIBLE
-        flipButton?.visibility = if (showFull) View.VISIBLE else View.GONE
-        exitButton?.visibility = if (showFull) View.VISIBLE else View.GONE
-        manualButton?.text = if (showFull) "👆 手动" else "👆"
-        applyAutoVisual()
-    }
-
-    private fun applyAutoVisual() {
-        val highlight = if (autoEnabled) 0x331B66FF.toInt() else 0
-        autoCheckbox?.setBackgroundColor(highlight)
-        compactAuto?.setBackgroundColor(highlight)
     }
 
     fun setFlipModeLabel(mode: Int) {
@@ -402,5 +384,5 @@ class ToolbarManager(
 
     fun isAttached(): Boolean = attached
 
-    fun isCompact(): Boolean = compact
+    fun isCompact(): Boolean = AppState.compactMode.value
 }

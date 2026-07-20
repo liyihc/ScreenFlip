@@ -7,6 +7,11 @@ import kotlinx.coroutines.flow.asStateFlow
 
 object AppState {
 
+    enum class State { IDLE, WAITING, OPERATING_AUTO, OPERATING_MANUAL, SHOWING }
+
+    private val _state = MutableStateFlow(State.IDLE)
+    val state: StateFlow<State> = _state.asStateFlow()
+
     private val _autoEnabled = MutableStateFlow(false)
     val autoEnabled: StateFlow<Boolean> = _autoEnabled.asStateFlow()
 
@@ -24,6 +29,10 @@ object AppState {
 
     private val _showText = MutableStateFlow("")
     val showText: StateFlow<String> = _showText.asStateFlow()
+
+    fun setState(value: State) {
+        _state.value = value
+    }
 
     fun setAutoEnabled(value: Boolean) {
         _autoEnabled.value = value

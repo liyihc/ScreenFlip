@@ -29,10 +29,7 @@ import kotlinx.coroutines.launch
 
 class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCallback {
 
-    enum class State { IDLE, WAITING, OPERATING_AUTO, OPERATING_MANUAL, SHOWING }
-
     private lateinit var mirrorEngine: MirrorEngine
-    private lateinit var overlayManager: OverlayManager
     private lateinit var toolbarManager: ToolbarManager
     private lateinit var config: MirrorConfig
 
@@ -42,8 +39,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     private val handler = Handler(Looper.getMainLooper())
     private var restoreRunnable: Runnable? = null
     private var countdownRunnable: Runnable? = null
-    private var state: State = State.IDLE
+    private var state: AppState.State
+        get() = AppState.state.value
+        set(value) { AppState.setState(value) }
     private var uiReady = false
+    private var projectionInvalidated = false
 
     private val debugReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -53,11 +53,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                     "start" -> { android.util.Log.d("ScreenFlip", "DEBUG start"); onStartClicked() }
                     "auto" -> { android.util.Log.d("ScreenFlip", "DEBUG auto"); onAutoToggled(!AppState.autoEnabled.value) }
                     "manual" -> { android.util.Log.d("ScreenFlip", "DEBUG manual"); onManualClicked() }
-                    "done" -> { android.util.Log.d("ScreenFlip", "DEBUG done"); if (state == State.OPERATING_MANUAL) captureNow() }
+                    "done" -> { android.util.Log.d("ScreenFlip", "DEBUG done"); if (state == AppState.State.OPERATING_MANUAL) captureNow() }
                     "reset" -> { android.util.Log.d("ScreenFlip", "DEBUG reset"); resetToWaiting() }
                     "flip" -> { android.util.Log.d("ScreenFlip", "DEBUG flip"); onFlipModeClicked() }
                     "stop" -> { android.util.Log.d("ScreenFlip", "DEBUG stop"); onExitClicked() }
-                    "resume" -> { toolbarManager.attach(); overlayManager.attach(); toolbarManager.show() }
+                    "resume" -> { toolbarManager.attach(); toolbarManager.show() }
                 }
             }
         }
@@ -70,10 +70,25 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         }
     }
 
+    private val displayDismissingReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            android.util.Log.d("ScreenFlip", "Display dismissing (tap): to WAITING now")
+            onDisplayDismissed()
+        }
+    }
+
+    private val screenOffReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (state != AppState.State.IDLE && mediaProjection != null) {
+                android.util.Log.d("ScreenFlip", "SCREEN_OFF: marking projection invalidated")
+                projectionInvalidated = true
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         config = MirrorConfig(this)
-        overlayManager = OverlayManager(this)
         toolbarManager = ToolbarManager(this, config, this)
         registerReceiver(debugReceiver, IntentFilter(ACTION_DEBUG), Context.RECEIVER_EXPORTED)
         registerReceiver(
@@ -81,6 +96,12 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             IntentFilter(DisplayActivity.ACTION_DISMISSED),
             Context.RECEIVER_EXPORTED
         )
+        registerReceiver(
+            displayDismissingReceiver,
+            IntentFilter(DisplayActivity.ACTION_DISMISSING),
+            Context.RECEIVER_EXPORTED
+        )
+        registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
         collectConfig()
     }
 
@@ -108,7 +129,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                 }
             }
             ACTION_MANUAL_DONE -> {
-                if (state == State.OPERATING_MANUAL) {
+                if (state == AppState.State.OPERATING_MANUAL) {
                     captureNow()
                 }
             }
@@ -125,10 +146,10 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                     "start" -> onStartClicked()
                     "auto" -> onAutoToggled(!AppState.autoEnabled.value)
                     "manual" -> onManualClicked()
-                    "done" -> if (state == State.OPERATING_MANUAL) captureNow()
+                    "done" -> if (state == AppState.State.OPERATING_MANUAL) captureNow()
                     "reset" -> resetToWaiting()
                     "flip" -> onFlipModeClicked()
-                    "resume" -> { toolbarManager.attach(); overlayManager.attach(); toolbarManager.show() }
+                    "resume" -> { toolbarManager.attach(); toolbarManager.show() }
                 }
             }
         }
@@ -139,9 +160,9 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         if (uiReady) return
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("点击悬浮窗开始"))
-        overlayManager.attach()
         toolbarManager.attach()
-        toolbarManager.setIdle()
+        state = AppState.State.IDLE
+        AppState.setShowText("")
         toolbarManager.setFlipModeLabel(config.flipMode)
         toolbarManager.setPauseSeconds(config.pauseDuration / 1000)
         uiReady = true
@@ -149,12 +170,12 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     }
 
     private fun beginCapture(data: Intent) {
-        android.util.Log.d("ScreenFlip", "beginCapture: overlayAttached=${overlayManager.isAttached()} toolbarAttached=${toolbarManager.isAttached()}")
-        overlayManager.attach()
+        android.util.Log.d("ScreenFlip", "beginCapture: toolbarAttached=${toolbarManager.isAttached()}")
         toolbarManager.attach()
         val projectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(Activity.RESULT_OK, data)
+        projectionInvalidated = false
 
         val metrics = DisplayMetrics()
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -177,10 +198,9 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             metrics.densityDpi
         )
 
-        state = State.WAITING
-        toolbarManager.setWaiting()
+        state = AppState.State.WAITING
+        AppState.setShowText("")
         toolbarManager.show()
-        overlayManager.hide()
         updateNotification("镜像工具待命")
         android.util.Log.d("ScreenFlip", "after beginCapture: toolbarVisible=${toolbarManager.isAttached()}")
     }
@@ -192,7 +212,6 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         }
         removeRestoreRunnable()
         toolbarManager.hide()
-        overlayManager.hide()
         handler.postDelayed({
             mirrorEngine.captureFlipped()
         }, 150)
@@ -200,16 +219,15 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
 
     private fun scheduleAutoCapture() {
         removeRestoreRunnable()
-        if (!AppState.autoEnabled.value || state != State.WAITING) return
-        state = State.OPERATING_AUTO
-        toolbarManager.setOperating(true)
+        if (projectionInvalidated) { invalidateProjectionToIdle(); return }
+        if (!AppState.autoEnabled.value || state != AppState.State.WAITING) return
+        state = AppState.State.OPERATING_AUTO
         startCountdown()
         updateNotification("操作中…${config.pauseDuration / 1000}秒后显示")
         restoreRunnable = Runnable {
             android.util.Log.d("ScreenFlip", "restoreRunnable firing captureFlipped")
             AppState.setShowText("")
             toolbarManager.hide()
-            overlayManager.hide()
             mirrorEngine.captureFlipped()
         }
         handler.postDelayed(restoreRunnable!!, config.pauseDuration)
@@ -222,7 +240,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         var remaining = totalSec
         countdownRunnable = object : Runnable {
             override fun run() {
-                if (state != State.OPERATING_AUTO) return
+                if (state != AppState.State.OPERATING_AUTO) return
                 AppState.setShowText("${remaining}秒后截图")
                 remaining--
                 if (remaining >= 0) {
@@ -236,16 +254,14 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     override fun onAutoToggled(enabled: Boolean) {
         android.util.Log.d("ScreenFlip", "onAutoToggled enabled=$enabled state=$state")
         AppState.setAutoEnabled(enabled)
-        toolbarManager.setAutoEnabled(enabled)
         if (enabled) {
-            if (state == State.WAITING) scheduleAutoCapture()
+            if (state == AppState.State.WAITING) scheduleAutoCapture()
         } else {
-            if (state == State.OPERATING_AUTO) {
+            if (state == AppState.State.OPERATING_AUTO) {
                 removeRestoreRunnable()
                 removeCountdownRunnable()
                 AppState.setShowText("")
-                state = State.WAITING
-                toolbarManager.setWaiting()
+                state = AppState.State.WAITING
                 toolbarManager.show()
                 updateNotification("镜像工具待命")
             }
@@ -254,27 +270,26 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
 
     override fun onManualClicked() {
         android.util.Log.d("ScreenFlip", "onManualClicked state=$state")
-        if (state == State.OPERATING_AUTO || state == State.OPERATING_MANUAL) return
+        if (projectionInvalidated) { invalidateProjectionToIdle(); return }
+        if (state == AppState.State.OPERATING_AUTO || state == AppState.State.OPERATING_MANUAL) return
         removeRestoreRunnable()
         cancelAll()
         AppState.setIsDisplayShowing(false)
         sendBroadcast(Intent(DisplayActivity.ACTION_CLOSE))
-        state = State.OPERATING_MANUAL
-        toolbarManager.setOperating(false)
+        state = AppState.State.OPERATING_MANUAL
         toolbarManager.show()
         captureNow()
     }
 
     override fun onStartClicked() {
         android.util.Log.d("ScreenFlip", "onStartClicked state=$state")
-        if (state != State.IDLE) return
+        if (state != AppState.State.IDLE) return
         requestProjectionViaActivity()
     }
 
     private fun resetToWaiting() {
-        state = State.WAITING
-        overlayManager.hide()
-        toolbarManager.setWaiting()
+        state = AppState.State.WAITING
+        AppState.setShowText("")
         toolbarManager.show()
         updateNotification("镜像工具待命")
         if (AppState.autoEnabled.value) scheduleAutoCapture()
@@ -316,9 +331,9 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
 
     private fun onDisplayDismissed() {
         android.util.Log.d("ScreenFlip", "onDisplayDismissed state=$state")
-        if (state != State.SHOWING) return
-        state = State.WAITING
-        toolbarManager.setWaiting()
+        if (state != AppState.State.SHOWING) return
+        state = AppState.State.WAITING
+        AppState.setShowText("")
         toolbarManager.show()
         updateNotification("镜像工具待命")
         if (AppState.autoEnabled.value) scheduleAutoCapture()
@@ -327,7 +342,6 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     override fun onRawFrameReady(bitmap: Bitmap) {
         handler.post {
             AppState.setRawFrame(bitmap)
-            overlayManager.hide()
             val intent = Intent(this, DisplayActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -337,22 +351,31 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             } catch (e: Exception) {
                 android.util.Log.e("ScreenFlip", "launch DisplayActivity failed: ${e.message}")
             }
-            toolbarManager.setShowing()
             toolbarManager.show()
-            state = State.SHOWING
+            state = AppState.State.SHOWING
+            AppState.setShowText("已显示翻转画面")
             android.util.Log.d("ScreenFlip", "onRawFrameReady: display shown")
             updateNotification("已显示翻转画面")
         }
     }
 
     override fun onCaptureError() {
-        handler.post {
-            toolbarManager.setWaiting()
-            toolbarManager.show()
-            state = State.WAITING
-            updateNotification("捕获失败，请重试")
-            if (AppState.autoEnabled.value) scheduleAutoCapture()
+        handler.post { invalidateProjectionToIdle() }
+    }
+
+    private fun invalidateProjectionToIdle() {
+        android.util.Log.d("ScreenFlip", "invalidateProjectionToIdle: back to idle for re-auth")
+        cancelAll()
+        projectionInvalidated = false
+        AppState.setAutoEnabled(false)
+        if (::mirrorEngine.isInitialized) {
+            try { mirrorEngine.stop() } catch (_: Exception) {}
         }
+        mediaProjection?.stop()
+        mediaProjection = null
+        state = AppState.State.IDLE
+        toolbarManager.show()
+        updateNotification("录屏权限已失效，请点开始重新授权")
     }
 
     private fun requestProjectionViaActivity() {
@@ -421,7 +444,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
             .addAction(android.R.drawable.ic_menu_gallery, "开始", startPi)
-        if (state != State.IDLE) {
+        if (state != AppState.State.IDLE) {
             builder.addAction(android.R.drawable.ic_menu_send, "完成截图", donePi)
         }
         builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPi)
@@ -440,7 +463,6 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             AppState.setRawFrame(null)
             AppState.setIsDisplayShowing(false)
             mirrorEngine.stop()
-            overlayManager.detach()
             toolbarManager.detach()
             mediaProjection?.stop()
             mediaProjection = null
@@ -454,6 +476,8 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     override fun onDestroy() {
         try { unregisterReceiver(debugReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(displayDismissedReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(displayDismissingReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(screenOffReceiver) } catch (_: Exception) {}
         serviceScope.cancel()
         stopMirroring()
         super.onDestroy()

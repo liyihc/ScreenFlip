@@ -30,7 +30,7 @@
         <activity
             android:name=".DisplayActivity"
             android:exported="false"
-            android:theme="@style/Theme.ScreenFlipper"
+            android:theme="@style/Theme.ScreenFlipper.Display"
             android:taskAffinity=""
             android:excludeFromRecents="true" />
 
