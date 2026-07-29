@@ -1,9 +1,8 @@
 package com.liyihc.screenflipper
 
 import android.content.Context
+import android.graphics.PixelFormat
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -11,20 +10,23 @@ import android.view.WindowManager
 import android.widget.EditText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.Button
+import androidx.compose.material.Checkbox
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,7 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,7 +53,6 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import kotlinx.coroutines.cancel
-import kotlin.math.roundToInt
 
 // 悬浮工具栏管理器。
 // 与旧实现（直接 new 一堆 View 塞进 WindowManager）不同，这里使用 Jetpack Compose
@@ -59,7 +60,7 @@ import kotlin.math.roundToInt
 // Compose 的内容通过 collectAsStateWithLifecycle 直接订阅 AppState 的状态流。
 // 拖动与长按手势保留在标题栏上（与原生实现一致）：
 //  - 拖动超过 10px 视为移动，实时更新窗口坐标并落盘；
-//  - 长按 400ms 切换 精简/完整 模式。
+//  - 长按 400ms 切换 精简/完整 模式（拖动中不触发长按）。
 class ToolbarManager(
     private val context: Context,
     private val config: MirrorConfig,
@@ -77,32 +78,34 @@ class ToolbarManager(
         fun onCompactToggled()
     }
 
-    // 手势状态（声明在类成员上，供 TitleBar 的 pointerInput 闭包读写）。
-    private var longPressRunnable: Runnable? = null
-    private var dragHandled = false
-    private var longPressFired = false
+    // 拖动状态（声明在类成员上，供 TitleBar 的 pointerInput 闭包读写）。
+    private var dragX = 0
+    private var dragY = 0
 
     private val windowManager: WindowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
-    private val handler = Handler(Looper.getMainLooper())
 
     // ComposeView 自身，以及它作为 WindowManager 子 View 的根（两者指向同一个对象）。
     private var composeView: ComposeView? = null
     private var rootView: View? = null
     private var attached = false
 
-    // 当前窗口坐标（拖动时增量更新，松手时写回 config）。
-    private var dragX = 0
-    private var dragY = 0
-
-    // 配色：主色用于按钮底色，半透明蓝用于整体背景。
+    // 配色
     private val accent = Color(0xFF1565C0)
     private val surface = Color(0xEE1565C0)
+
+    // 间距常量（所有页面统一使用）
+    private val T_PAD = 4.dp            // 工具栏内边距
+    private val T_GAP = 1.dp            // 元素纵向间距
+    private val T_ROW_GAP = 2.dp        // 完整模式行内横向间距
+    private val C_ROW_GAP = 4.dp        // 精简模式行内横向间距
+    private val C_PAD_H = 8.dp          // 精简模式按钮横向内边距
+    private val C_PAD_V = 2.dp          // 精简模式按钮纵向内边距
 
     fun attach() {
         if (attached) return
         val compose = ComposeView(context)
+        compose.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         // ComposeView 挂在 WindowManager 上，没有宿主 LifecycleOwner，
         // 必须手动注入一个，否则 onAttachedToWindow 时会抛 ViewTreeLifecycleOwner not found。
         val owner = ToolbarLifecycleOwner()
@@ -124,6 +127,7 @@ class ToolbarManager(
             }
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
+            format = PixelFormat.TRANSLUCENT
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
             gravity = Gravity.TOP or Gravity.START
             x = config.toolbarX
@@ -156,9 +160,9 @@ class ToolbarManager(
 
         Box(
             modifier = Modifier
-                .width(IntrinsicSize.Min)
+                .wrapContentWidth()
                 .background(surface, RoundedCornerShape(8.dp))
-                .padding(8.dp)
+                .padding(T_PAD)
         ) {
             if (compact) {
                 CompactLayout(
@@ -188,62 +192,81 @@ class ToolbarManager(
         }
     }
 
+    // 拖动辅助（pointerInteropFilter 回调内使用）。
+    private var dragStartRawX = 0f
+    private var dragStartRawY = 0f
+    private var dragStartWinX = 0
+    private var dragStartWinY = 0
+    private var dragHandled = false
+    private var longPressFired = false
+    private var longPressRunnable: Runnable? = null
+    private val handler = Handler(Looper.getMainLooper())
+
     // 标题栏：承载拖动与长按手势，并显示应用名。
+    // 使用 pointerInteropFilter 直接处理 Android 原生触摸事件：
+    //  - 拖动超过 10px 即移动窗口，同时取消长按定时器；
+    //  - 按住不动 400ms 触发长按，切换精简/完整模式。
     @Composable
     private fun TitleBar() {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 4.dp)
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = {
-                            // 按下即启动长按计时，超过阈值视为切换 compact 模式。
-                            longPressRunnable?.let { handler.removeCallbacks(it) }
-                            longPressFired = false
+                .pointerInteropFilter { event ->
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            dragStartRawX = event.rawX
+                            dragStartRawY = event.rawY
+                            dragStartWinX = dragX
+                            dragStartWinY = dragY
                             dragHandled = false
-                            longPressRunnable = Runnable {
+                            longPressFired = false
+                            longPressRunnable?.let { handler.removeCallbacks(it) }
+                            val r = Runnable {
                                 longPressFired = true
                                 callback.onCompactToggled()
                             }
-                            handler.postDelayed(longPressRunnable!!, 400)
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            // 超过阈值才判定为拖动，避免与长按冲突。
-                            if (!dragHandled &&
-                                (kotlin.math.abs(dragAmount.x) > 10 ||
-                                    kotlin.math.abs(dragAmount.y) > 10)
-                            ) {
+                            longPressRunnable = r
+                            handler.postDelayed(r, 400L)
+                            true
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val dx = (event.rawX - dragStartRawX).toInt()
+                            val dy = (event.rawY - dragStartRawY).toInt()
+                            if (!dragHandled && !longPressFired && (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10)) {
                                 dragHandled = true
                                 longPressRunnable?.let { handler.removeCallbacks(it) }
                                 longPressRunnable = null
                             }
                             if (dragHandled) {
-                                dragX += dragAmount.x.roundToInt()
-                                dragY += dragAmount.y.roundToInt()
+                                dragX = dragStartWinX + dx
+                                dragY = dragStartWinY + dy
                                 updateWindowPosition(dragX, dragY)
                             }
-                        },
-                        onDragEnd = {
+                            true
+                        }
+                        MotionEvent.ACTION_UP -> {
                             longPressRunnable?.let { handler.removeCallbacks(it) }
                             longPressRunnable = null
-                            // 拖动结束才落盘坐标。
                             if (dragHandled) {
                                 config.toolbarX = dragX
                                 config.toolbarY = dragY
                             }
                             dragHandled = false
                             longPressFired = false
-                        },
-                        onDragCancel = {
+                            true
+                        }
+                        MotionEvent.ACTION_CANCEL -> {
                             longPressRunnable?.let { handler.removeCallbacks(it) }
                             longPressRunnable = null
+                            dragX = config.toolbarX
+                            dragY = config.toolbarY
                             dragHandled = false
                             longPressFired = false
+                            true
                         }
-                    )
+                        else -> false
+                    }
                 }
         ) {
             Text(
@@ -275,38 +298,51 @@ class ToolbarManager(
         val showing = state == AppState.State.SHOWING
 
         Column(
+            modifier = Modifier.width(IntrinsicSize.Max),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(T_GAP)
         ) {
             TitleBar()
 
             if (showText.isNotBlank()) {
-                Text(text = showText, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Text(text = showText, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center, softWrap = false)
             }
 
             if (idle) {
-                Button(onClick = onStart) { Text("\u25B6 开始") }
+                Button(
+                    onClick = onStart,
+                    modifier = Modifier.wrapContentWidth()
+                ) { Text("\u25B6 开始", maxLines = 1) }
             }
 
             if (waitingOrOperating) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(T_ROW_GAP)
                 ) {
                     Checkbox(checked = autoEnabled, onCheckedChange = onAuto)
-                    Text("\u23F1 自动循环", color = Color.White, fontSize = 14.sp)
+                    Text("\u23F1 自动循环", color = Color.White, fontSize = 14.sp, softWrap = false)
                     PauseInput()
                     Text("S", color = Color.White, fontSize = 14.sp)
                 }
-                Button(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("\uD83D\uDC46 手动") }
+                Button(
+                    onClick = onManual,
+                    modifier = Modifier.wrapContentWidth()
+                ) { Text("\uD83D\uDC46 手动", maxLines = 1) }
             }
 
             if (showing) {
-                Button(onClick = onFlip) { Text(flipLabel(flipMode)) }
+                Button(
+                    onClick = onFlip,
+                    modifier = Modifier.wrapContentWidth()
+                ) { Text(flipLabel(flipMode), maxLines = 1) }
             }
 
-            if (waitingOrOperating || showing) {
-                Button(onClick = onExit) { Text("\u23F9 退出") }
+            if (true) {
+                Button(
+                    onClick = onExit,
+                    modifier = Modifier.wrapContentWidth()
+                ) { Text("\u23F9 退出", maxLines = 1) }
             }
         }
     }
@@ -331,10 +367,15 @@ class ToolbarManager(
         val showing = state == AppState.State.SHOWING
 
         Column(
+            modifier = Modifier.width(IntrinsicSize.Max),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(T_GAP)
         ) {
             TitleBar()
+
+            if (showText.isNotBlank()) {
+                Text(text = showText, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center, softWrap = false)
+            }
 
             if (idle) {
                 Text(
@@ -345,7 +386,7 @@ class ToolbarManager(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
                         .background(accent)
-                        .padding(12.dp)
+                        .padding(C_PAD_H)
                         .clickable(onClick = onStart)
                 )
             }
@@ -353,7 +394,7 @@ class ToolbarManager(
             if (waitingOrOperating) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(C_ROW_GAP)
                 ) {
                     // 自动开启且处于倒计时时，复选框旁显示剩余秒数。
                     val autoText = if (autoEnabled && countdown >= 0) "${countdown}\u23F1" else "\u23F1"
@@ -371,7 +412,7 @@ class ToolbarManager(
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(accent)
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .padding(horizontal = C_PAD_H, vertical = C_PAD_V)
                             .clickable(onClick = onManual)
                     )
                 }
@@ -385,13 +426,9 @@ class ToolbarManager(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
                         .background(accent)
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .padding(horizontal = C_PAD_H, vertical = C_PAD_V)
                         .clickable(onClick = onFlip)
                 )
-            }
-
-            if (showText.isNotBlank()) {
-                Text(text = showText, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
             }
         }
     }
