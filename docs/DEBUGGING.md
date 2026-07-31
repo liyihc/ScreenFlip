@@ -78,13 +78,38 @@ launch -> cmd start -> [HUMAN taps allow]
 ```
 
 Expected log markers: `onManualClicked` / `auto scheduled capture in Nms` /
-`restoreRunnable firing captureFlipped` / `Display dismissed` -> `onDisplayDismissed`.
+`restoreRunnable firing captureFlipped` / `LATENCY capture decode Nms` /
+`LATENCY capture->display Nms` / `Display dismissed` -> `onDisplayDismissed`.
 
 To dismiss the flipped-image `DisplayActivity`: tap the screen, or send the
 `ACTION_DISPLAY_CLOSE` broadcast (required on devices that block `adb shell input`).
 
 Pure-UI items NOT reachable via ADB (verify by eye on-device): the seconds input
 box, long-press-title compact toggle, and the Auto icon's blue border.
+
+## Measuring capture latency
+
+The code logs one-shot latency markers (tag `ScreenFlip`) — grep them to compare before/after:
+
+```
+& $adb logcat -d -s ScreenFlip | Select-String "LATENCY"
+```
+
+- `LATENCY capture decode Nms` — time from `captureFlipped()` until the raw bitmap is
+  ready (engine wait + decode).
+- `LATENCY capture->display Nms` — time from `captureNow()`/`restoreRunnable` until
+  `DisplayActivity` is launched (includes the toolbar-hide frame wait + decode +
+  activity cold start).
+
+Procedure: `cmd start` -> [human taps allow] -> run `cmd manual` a few times with a
+static screen and with an animated screen (e.g. a timer app running) -> compare the two
+`LATENCY` markers. Expected: static/manual ~≈250ms (fresh-frame wait cap) + decode,
+animated/manual ≈ one frame time + decode. Auto-loop total should drop from ~7s to
+~5s countdown + ~small overhead.
+
+Pure-CPU regressions are covered by host unit tests (`:app:testDebugUnitTest`):
+`FlipUtilsTest` (correctness vs the old reference mapping + `perf_1080x2400`) and
+`FrameRepackerTest` (row-padding handling + `perf_1080x2400_withPadding`).
 
 ## Gotchas (things that broke during dev)
 
@@ -93,9 +118,9 @@ box, long-press-title compact toggle, and the Auto icon's blue border.
 - Debug `BroadcastReceiver` must use `Context.RECEIVER_EXPORTED` (targetSdk 36 requires
   an explicit flag; `am broadcast` comes from shell uid, so `RECEIVER_NOT_EXPORTED`
   silently drops it).
-- `acquireLatestImage()` on the render thread blocks forever — use
-  `OnImageAvailableListener` + 1.2s fallback, and re-post `onSnapshotReady` to main
-  before touching any View.
+- The old `acquireLatestImage()` fallback (blocked forever on this device when called
+  synchronously on a thread) was removed: MirrorEngine now keeps a cached latest frame
+  and waits up to 250ms for a fresh one, falling back to the cache.
 - VirtualDisplay flag `FLAG_PUBLIC` produced no frames here; `FLAG_AUTO_MIRROR` works.
 - MIUI/HyperOS clamp `TYPE_APPLICATION_OVERLAY` to `alpha=0.8` regardless of
   `params.alpha` — use `DisplayActivity` (opaque) for the flipped image.

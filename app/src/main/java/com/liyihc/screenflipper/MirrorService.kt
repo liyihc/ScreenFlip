@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import kotlinx.coroutines.CoroutineScope
@@ -44,6 +45,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         set(value) { AppState.setState(value) }
     private var uiReady = false
     private var projectionInvalidated = false
+    private var lastCaptureStartMs = 0L
 
     private val debugReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -211,10 +213,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             return
         }
         removeRestoreRunnable()
+        lastCaptureStartMs = SystemClock.uptimeMillis()
+        // 隐藏工具栏本身会触发一次重绘（产出一帧不含工具栏的画面）；
+        // 把隐藏时刻传给引擎，让它等"这一帧"而不是先固定等 150ms 再截图。
         toolbarManager.hide()
-        handler.postDelayed({
-            mirrorEngine.captureFlipped()
-        }, 150)
+        mirrorEngine.captureFlipped(lastCaptureStartMs)
     }
 
     private fun scheduleAutoCapture() {
@@ -227,8 +230,10 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         restoreRunnable = Runnable {
             android.util.Log.d("ScreenFlip", "restoreRunnable firing captureFlipped")
             AppState.setShowText("")
+            lastCaptureStartMs = SystemClock.uptimeMillis()
+            // 同样等"隐藏工具栏后的一帧"，避免把工具栏截进自动截图
             toolbarManager.hide()
-            mirrorEngine.captureFlipped()
+            mirrorEngine.captureFlipped(lastCaptureStartMs)
         }
         handler.postDelayed(restoreRunnable!!, config.pauseDuration)
         android.util.Log.d("ScreenFlip", "auto scheduled capture in ${config.pauseDuration}ms")
@@ -277,6 +282,12 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         removeRestoreRunnable()
         cancelAll()
         AppState.setIsDisplayShowing(false)
+        if (state == AppState.State.SHOWING) {
+            // 显示画面还开着：只关闭它，不自动截图。等 DISMISSED 把状态带回 WAITING 后
+            // 再点一次手动才会截，避免把全屏显示画面本身截进截图（回显）。
+            sendBroadcast(Intent(DisplayActivity.ACTION_CLOSE))
+            return
+        }
         sendBroadcast(Intent(DisplayActivity.ACTION_CLOSE))
         state = AppState.State.OPERATING_MANUAL
         toolbarManager.show()
@@ -350,12 +361,16 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             }
             try {
                 startActivity(intent)
+                android.util.Log.d(
+                    "ScreenFlip",
+                    "LATENCY capture->display ${SystemClock.uptimeMillis() - lastCaptureStartMs}ms"
+                )
                 android.util.Log.d("ScreenFlip", "DisplayActivity launched")
             } catch (e: Exception) {
                 android.util.Log.e("ScreenFlip", "launch DisplayActivity failed: ${e.message}")
             }
-            toolbarManager.show()
             state = AppState.State.SHOWING
+            toolbarManager.show()
             AppState.setShowText("已显示翻转画面")
             android.util.Log.d("ScreenFlip", "onRawFrameReady: display shown")
             updateNotification("已显示翻转画面")

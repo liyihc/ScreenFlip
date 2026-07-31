@@ -23,16 +23,22 @@ class DisplayActivity : Activity() {
 
     private var imageView: ImageView? = null
     private var currentBitmap: Bitmap? = null
+    private var lastRenderedFrame: Bitmap? = null
+    private var lastRenderedMode = -1
+    private var closeReason: String? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val dismissReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            closeReason = "action_close"
+            android.util.Log.d("ScreenFlip", "DisplayActivity close by ACTION_CLOSE broadcast")
             finish()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.d("ScreenFlip", "DisplayActivity onCreate")
         window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -56,6 +62,8 @@ class DisplayActivity : Activity() {
         }
 
         view.setOnClickListener {
+            closeReason = "tap"
+            android.util.Log.d("ScreenFlip", "DisplayActivity close by user tap")
             sendBroadcast(Intent(ACTION_DISMISSING))
             finish()
         }
@@ -68,18 +76,30 @@ class DisplayActivity : Activity() {
     private fun renderFrame(frame: Bitmap?, flipMode: Int) {
         val view = imageView ?: return
         if (frame == null) {
-            if (currentBitmap == null) finish()
+            if (currentBitmap == null) {
+                closeReason = "no_frame"
+                android.util.Log.d("ScreenFlip", "DisplayActivity close by no frame")
+                finish()
+            }
             return
         }
+        // onCreate 直接渲染一次 + combine 初始发射会再渲染一次，且 setRawFrame 可能在
+        // 两次之间 recycle 掉帧源；用"同一帧源+同翻转模式"短路，避免 recycle 正在显示的
+        // bitmap 后崩溃（Canvas: trying to use a recycled bitmap）。
+        if (frame === lastRenderedFrame && flipMode == lastRenderedMode) return
+        lastRenderedFrame = frame
+        lastRenderedMode = flipMode
         val flipped = FlipUtils.applyFlip(frame, flipMode)
-        currentBitmap?.recycle()
+        val old = currentBitmap
         currentBitmap = flipped
         view.setImageBitmap(flipped)
+        old?.recycle()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(dismissReceiver) } catch (_: Exception) {}
+        android.util.Log.d("ScreenFlip", "DisplayActivity onDestroy reason=${closeReason ?: "unknown"}")
         AppState.setIsDisplayShowing(false)
         sendBroadcast(Intent(ACTION_DISMISSED))
         currentBitmap?.recycle()

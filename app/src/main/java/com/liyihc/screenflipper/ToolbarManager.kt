@@ -28,6 +28,7 @@ import androidx.compose.material.Checkbox
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -157,6 +158,14 @@ class ToolbarManager(
         val showText by AppState.showText.collectAsStateWithLifecycle()
         val flipMode by AppState.flipMode.collectAsStateWithLifecycle()
         val countdown by AppState.countdownSeconds.collectAsStateWithLifecycle()
+
+        // 任意订阅的状态变化导致重组时打点。
+        LaunchedEffect(state, compact, autoEnabled, showText, flipMode, countdown) {
+            android.util.Log.d(
+                "ScreenFlip",
+                "Toolbar recompose: state=$state compact=$compact auto=$autoEnabled showText='$showText' flipMode=$flipMode countdown=$countdown"
+            )
+        }
 
         Box(
             modifier = Modifier
