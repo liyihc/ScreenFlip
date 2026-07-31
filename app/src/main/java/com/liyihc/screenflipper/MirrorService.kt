@@ -277,7 +277,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     override fun onManualClicked() {
         android.util.Log.d("ScreenFlip", "onManualClicked state=$state")
         if (projectionInvalidated) { invalidateProjectionToIdle(); return }
-        if (state == AppState.State.OPERATING_AUTO || state == AppState.State.OPERATING_MANUAL) return
+        if (state == AppState.State.OPERATING_MANUAL) return
         removeRestoreRunnable()
         cancelAll()
         AppState.setIsDisplayShowing(false)
