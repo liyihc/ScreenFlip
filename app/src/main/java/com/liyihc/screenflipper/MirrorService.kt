@@ -68,14 +68,14 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     private val displayDismissedReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             android.util.Log.d("ScreenFlip", "Display dismissed")
-            onDisplayDismissed()
+            onDisplayDismissed(intent?.getLongExtra(DisplayActivity.EXTRA_DISPLAY_SEQ, -1L) ?: -1L)
         }
     }
 
     private val displayDismissingReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             android.util.Log.d("ScreenFlip", "Display dismissing (tap): to WAITING now")
-            onDisplayDismissed()
+            onDisplayDismissed(intent?.getLongExtra(DisplayActivity.EXTRA_DISPLAY_SEQ, -1L) ?: -1L)
         }
     }
 
@@ -136,7 +136,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                 }
             }
             ACTION_DISPLAY_DISMISSED -> {
-                onDisplayDismissed()
+                onDisplayDismissed(intent?.getLongExtra(DisplayActivity.EXTRA_DISPLAY_SEQ, -1L) ?: -1L)
             }
             ACTION_STOP -> {
                 sendBroadcast(Intent(DisplayActivity.ACTION_CLOSE))
@@ -343,7 +343,14 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         return toolbarManager.isCompact()
     }
 
-    private fun onDisplayDismissed() {
+    private fun onDisplayDismissed(seq: Long) {
+        val current = AppState.currentDisplaySeq()
+        if (seq != -1L && seq != current) {
+            // 快速连拍时旧预览的销毁会被延迟到新预览显示之后：上一个 onDestroy 广播的
+            // DISMISSED 携带旧序号，这种过期事件不能把状态拉出 SHOWING。
+            android.util.Log.d("ScreenFlip", "onDisplayDismissed ignored: stale seq=$seq current=$current")
+            return
+        }
         android.util.Log.d("ScreenFlip", "onDisplayDismissed state=$state")
         if (state != AppState.State.SHOWING) return
         state = AppState.State.WAITING
@@ -361,6 +368,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             }
             try {
                 startActivity(intent)
+                AppState.nextDisplaySeq()
                 android.util.Log.d(
                     "ScreenFlip",
                     "LATENCY capture->display ${SystemClock.uptimeMillis() - lastCaptureStartMs}ms"

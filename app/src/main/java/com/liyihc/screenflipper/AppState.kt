@@ -33,6 +33,19 @@ object AppState {
     private val _countdownSeconds = MutableStateFlow<Long>(-1)
     val countdownSeconds: StateFlow<Long> = _countdownSeconds.asStateFlow()
 
+    private var displaySeq = 0L
+
+    // 每次 DisplayActivity 启动递增；旧实例延迟销毁时广播的 DISMISSED 携带旧序号，
+    // MirrorService 据此忽略过期关闭事件。
+    @Synchronized
+    fun nextDisplaySeq(): Long {
+        displaySeq++
+        return displaySeq
+    }
+
+    @Synchronized
+    fun currentDisplaySeq(): Long = displaySeq
+
     fun setState(value: State) {
         _state.value = value
     }

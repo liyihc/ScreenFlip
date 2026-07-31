@@ -26,6 +26,7 @@ class DisplayActivity : Activity() {
     private var lastRenderedFrame: Bitmap? = null
     private var lastRenderedMode = -1
     private var closeReason: String? = null
+    private var displaySeq = -1L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val dismissReceiver = object : BroadcastReceiver() {
@@ -52,6 +53,7 @@ class DisplayActivity : Activity() {
         setContentView(view)
 
         AppState.setIsDisplayShowing(true)
+        displaySeq = AppState.currentDisplaySeq()
 
         renderFrame(AppState.rawFrame.value, AppState.flipMode.value)
 
@@ -64,7 +66,7 @@ class DisplayActivity : Activity() {
         view.setOnClickListener {
             closeReason = "tap"
             android.util.Log.d("ScreenFlip", "DisplayActivity close by user tap")
-            sendBroadcast(Intent(ACTION_DISMISSING))
+            sendBroadcast(Intent(ACTION_DISMISSING).putExtra(EXTRA_DISPLAY_SEQ, displaySeq))
             finish()
         }
         view.isClickable = true
@@ -101,7 +103,7 @@ class DisplayActivity : Activity() {
         try { unregisterReceiver(dismissReceiver) } catch (_: Exception) {}
         android.util.Log.d("ScreenFlip", "DisplayActivity onDestroy reason=${closeReason ?: "unknown"}")
         AppState.setIsDisplayShowing(false)
-        sendBroadcast(Intent(ACTION_DISMISSED))
+        sendBroadcast(Intent(ACTION_DISMISSED).putExtra(EXTRA_DISPLAY_SEQ, displaySeq))
         currentBitmap?.recycle()
         currentBitmap = null
         imageView?.setImageBitmap(null)
@@ -112,5 +114,6 @@ class DisplayActivity : Activity() {
         const val ACTION_DISMISSED = "com.liyihc.screenflipper.ACTION_DISPLAY_DISMISSED"
         const val ACTION_DISMISSING = "com.liyihc.screenflipper.ACTION_DISPLAY_DISMISSING"
         const val ACTION_CLOSE = "com.liyihc.screenflipper.ACTION_DISPLAY_CLOSE"
+        const val EXTRA_DISPLAY_SEQ = "display_seq"
     }
 }
