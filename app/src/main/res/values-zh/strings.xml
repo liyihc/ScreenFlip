@@ -1,0 +1,21 @@
+<resources>
+    <string name="app_name">Screen Flipper</string>
+    <string name="start_button">▶ 开始</string>
+    <string name="auto_label">⏱ 自动</string>
+    <string name="manual_button">👆 手动</string>
+    <string name="exit_button">⏹ 退出</string>
+    <string name="pause_unit">秒</string>
+    <string name="flip_rotate">🔁 翻转:旋转180°</string>
+    <string name="flip_mirror">🔁 翻转:左右镜像</string>
+    <string name="flip_mirror_rotate">🔁 翻转:镜像+旋转180°</string>
+    <string name="flip_none">🔁 翻转:无翻转</string>
+    <string name="notif_tap_to_start">点击悬浮窗开始</string>
+    <string name="notif_standby">镜像工具待命</string>
+    <string name="notif_operating">操作中…%1$d秒后显示</string>
+    <string name="countdown_screenshot">%1$d秒后截图</string>
+    <string name="notif_shown">已显示翻转画面</string>
+    <string name="notif_projection_invalid">录屏权限已失效，请点开始重新授权</string>
+    <string name="notif_action_start">开始</string>
+    <string name="notif_action_done">完成截图</string>
+    <string name="notif_action_stop">停止</string>
+</resources>

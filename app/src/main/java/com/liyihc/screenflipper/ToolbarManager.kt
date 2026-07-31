@@ -321,7 +321,7 @@ class ToolbarManager(
                 Button(
                     onClick = onStart,
                     modifier = Modifier.wrapContentWidth()
-                ) { Text("\u25B6 开始", maxLines = 1) }
+                ) { Text(context.getString(R.string.start_button), maxLines = 1) }
             }
 
             if (waitingOrOperating) {
@@ -330,14 +330,14 @@ class ToolbarManager(
                     horizontalArrangement = Arrangement.spacedBy(T_ROW_GAP)
                 ) {
                     Checkbox(checked = autoEnabled, onCheckedChange = onAuto)
-                    Text("\u23F1 自动", color = Color.White, fontSize = 14.sp, softWrap = false)
+                    Text(context.getString(R.string.auto_label), color = Color.White, fontSize = 14.sp, softWrap = false)
                     PauseInput()
-                    Text("S", color = Color.White, fontSize = 14.sp)
+                    Text(context.getString(R.string.pause_unit), color = Color.White, fontSize = 14.sp)
                 }
                 Button(
                     onClick = onManual,
                     modifier = Modifier.wrapContentWidth()
-                ) { Text("\uD83D\uDC46 手动", maxLines = 1) }
+                ) { Text(context.getString(R.string.manual_button), maxLines = 1) }
             }
 
             if (showing) {
@@ -351,7 +351,7 @@ class ToolbarManager(
                 Button(
                     onClick = onExit,
                     modifier = Modifier.wrapContentWidth()
-                ) { Text("\u23F9 退出", maxLines = 1) }
+                ) { Text(context.getString(R.string.exit_button), maxLines = 1) }
             }
         }
     }
@@ -451,7 +451,7 @@ class ToolbarManager(
                 EditText(ctx).apply {
                     setTextColor(Color.White.toArgb())
                     setHintTextColor(Color(0xBBFFFFFF).toArgb())
-                    hint = "秒"
+                    hint = context.getString(R.string.pause_unit)
                     inputType = InputType.TYPE_CLASS_NUMBER
                     textSize = 14f
                     setSingleLine()
@@ -520,10 +520,10 @@ class ToolbarManager(
 
     // 根据 flipMode 返回翻转按钮的中文标签。
     private fun flipLabel(mode: Int): String = when (mode) {
-        MirrorConfig.FLIP_MIRROR -> "\uD83D\uDD01 翻转:左右镜像"
-        MirrorConfig.FLIP_MIRROR_ROTATE_180 -> "\uD83D\uDD01 翻转:镜像+旋转180°"
-        MirrorConfig.FLIP_NONE -> "\uD83D\uDD01 翻转:无翻转"
-        else -> "\uD83D\uDD01 翻转:旋转180°"
+        MirrorConfig.FLIP_MIRROR -> context.getString(R.string.flip_mirror)
+        MirrorConfig.FLIP_MIRROR_ROTATE_180 -> context.getString(R.string.flip_mirror_rotate)
+        MirrorConfig.FLIP_NONE -> context.getString(R.string.flip_none)
+        else -> context.getString(R.string.flip_rotate)
     }
 }
 

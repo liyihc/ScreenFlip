@@ -161,7 +161,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     private fun prepareUi() {
         if (uiReady) return
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("点击悬浮窗开始"))
+        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notif_tap_to_start)))
         toolbarManager.attach()
         state = AppState.State.IDLE
         AppState.setShowText("")
@@ -202,7 +202,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         state = AppState.State.WAITING
         AppState.setShowText("")
         toolbarManager.show()
-        updateNotification("镜像工具待命")
+        updateNotification(getString(R.string.notif_standby))
         android.util.Log.d("ScreenFlip", "after beginCapture: toolbarVisible=${toolbarManager.isAttached()}")
     }
 
@@ -225,7 +225,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         if (!AppState.autoEnabled.value || state != AppState.State.WAITING) return
         state = AppState.State.OPERATING_AUTO
         startCountdown()
-        updateNotification("操作中…${config.pauseDuration / 1000}秒后显示")
+        updateNotification(getString(R.string.notif_operating, config.pauseDuration / 1000))
         restoreRunnable = Runnable {
             android.util.Log.d("ScreenFlip", "restoreRunnable firing captureFlipped")
             AppState.setShowText("")
@@ -245,7 +245,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         countdownRunnable = object : Runnable {
             override fun run() {
                 if (state != AppState.State.OPERATING_AUTO) return
-                AppState.setShowText("${remaining}秒后截图")
+                AppState.setShowText(getString(R.string.countdown_screenshot, remaining))
                 AppState.setCountdownSeconds(remaining)
                 remaining--
                 if (remaining >= 0) {
@@ -269,7 +269,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                 AppState.setCountdownSeconds(-1)
                 state = AppState.State.WAITING
                 toolbarManager.show()
-                updateNotification("镜像工具待命")
+                updateNotification(getString(R.string.notif_standby))
             }
         }
     }
@@ -303,7 +303,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         state = AppState.State.WAITING
         AppState.setShowText("")
         toolbarManager.show()
-        updateNotification("镜像工具待命")
+        updateNotification(getString(R.string.notif_standby))
         if (AppState.autoEnabled.value) scheduleAutoCapture()
     }
 
@@ -355,7 +355,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         state = AppState.State.WAITING
         AppState.setShowText("")
         toolbarManager.show()
-        updateNotification("镜像工具待命")
+        updateNotification(getString(R.string.notif_standby))
         if (AppState.autoEnabled.value) scheduleAutoCapture()
     }
 
@@ -378,9 +378,9 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             }
             state = AppState.State.SHOWING
             toolbarManager.show()
-            AppState.setShowText("已显示翻转画面")
+            AppState.setShowText(getString(R.string.notif_shown))
             android.util.Log.d("ScreenFlip", "onRawFrameReady: display shown")
-            updateNotification("已显示翻转画面")
+            updateNotification(getString(R.string.notif_shown))
         }
     }
 
@@ -400,7 +400,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         mediaProjection = null
         state = AppState.State.IDLE
         toolbarManager.show()
-        updateNotification("录屏权限已失效，请点开始重新授权")
+        updateNotification(getString(R.string.notif_projection_invalid))
     }
 
     private fun requestProjectionViaActivity() {
@@ -465,14 +465,14 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             Notification.Builder(this)
         }
         builder
-            .setContentTitle("Screen Flipper")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
-            .addAction(android.R.drawable.ic_menu_gallery, "开始", startPi)
+            .addAction(android.R.drawable.ic_menu_gallery, getString(R.string.notif_action_start), startPi)
         if (state != AppState.State.IDLE) {
-            builder.addAction(android.R.drawable.ic_menu_send, "完成截图", donePi)
+            builder.addAction(android.R.drawable.ic_menu_send, getString(R.string.notif_action_done), donePi)
         }
-        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopPi)
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.notif_action_stop), stopPi)
         return builder.build()
     }
 
