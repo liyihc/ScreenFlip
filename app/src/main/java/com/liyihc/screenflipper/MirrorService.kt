@@ -214,8 +214,8 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         }
         removeRestoreRunnable()
         lastCaptureStartMs = SystemClock.uptimeMillis()
-        // 隐藏工具栏本身会触发一次重绘（产出一帧不含工具栏的画面）；
-        // 把隐藏时刻传给引擎，让它等"这一帧"而不是先固定等 150ms 再截图。
+        // 隐藏工具栏本身会触发一次重绘；引擎会先等 GONE 传播，再 resize 强制重合成
+        // 取一帧构造上不含工具栏的画面。
         toolbarManager.hide()
         mirrorEngine.captureFlipped(lastCaptureStartMs)
     }
@@ -231,7 +231,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             android.util.Log.d("ScreenFlip", "restoreRunnable firing captureFlipped")
             AppState.setShowText("")
             lastCaptureStartMs = SystemClock.uptimeMillis()
-            // 同样等"隐藏工具栏后的一帧"，避免把工具栏截进自动截图
+            // 同样等"隐藏工具栏后的那一帧"，避免把工具栏截进自动截图。
             toolbarManager.hide()
             mirrorEngine.captureFlipped(lastCaptureStartMs)
         }

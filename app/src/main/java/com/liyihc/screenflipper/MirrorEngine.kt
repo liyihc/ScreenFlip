@@ -108,8 +108,9 @@ class MirrorEngine(
     }
 
     // 触发一次截图。
-    // minArrivalTimeMs 用于保证取到"该时刻之后"产出的帧：手动/自动模式都传工具栏隐藏时间，
-    // 确保截图画面不含工具栏。
+    // minArrivalTimeMs 是工具栏隐藏时刻。取帧分三步：先等 GONE 真正传播到合成器
+    // （HIDE_SETTLE_MS，这之前产出的帧仍可能含工具栏），再 resize 强制 SurfaceFlinger
+    // 重新合成，最后取"resize 之后"产出的那一帧——它构造上必然不含工具栏。
     fun captureFlipped(minArrivalTimeMs: Long = 0L) {
         android.util.Log.d("ScreenFlip", "captureFlipped called")
         if (!captureBusy.compareAndSet(false, true)) {
@@ -122,27 +123,28 @@ class MirrorEngine(
 
     private fun doCapture(minArrivalTimeMs: Long) {
         try {
-            val deadline = SystemClock.uptimeMillis() +
-                (if (cacheArrivalMs == 0L) FIRST_FRAME_WAIT_MS else FRESH_FRAME_WAIT_MS)
-            // 等一帧到达时间晚于 minArrivalTimeMs 的画面（通常是隐藏工具栏触发的那一帧）；
-            // 静态画面不产帧时最多等 FRESH_FRAME_WAIT_MS，超时后用缓存帧兜底。
+            // 1) 等 GONE 传播：WindowManager 在下一个 vsync 的 relayout 遍历里才移除窗口层，
+            //    隐藏生效前产出的帧仍含工具栏，一律忽略。
+            val settleDeadline =
+                maxOf(minArrivalTimeMs, SystemClock.uptimeMillis()) + HIDE_SETTLE_MS
+            while (SystemClock.uptimeMillis() < settleDeadline) {
+                Thread.sleep(5)
+            }
+
+            // 2) 强制重合成：resize 迫使 SurfaceFlinger 重新合成，产出一帧必然不含工具栏的画面。
+            forceRecomposite()
+            val forceMs = SystemClock.uptimeMillis()
+
+            // 3) 取"resize 之后"产出的那一帧（静默期/瞬态尺寸帧已被 copyToCache 过滤）。
+            val waitMs = if (cacheArrivalMs == 0L) FIRST_FRAME_WAIT_MS else RESIZE_FRAME_WAIT_MS
+            val deadline = forceMs + waitMs
             while (SystemClock.uptimeMillis() < deadline) {
-                if (cacheArrivalMs > minArrivalTimeMs) break
+                if (cacheArrivalMs > forceMs) break
                 Thread.sleep(10)
             }
 
-            val snapshot: ByteBuffer
-            synchronized(imageLock) {
-                if (cacheBuffer == null) {
-                    android.util.Log.e("ScreenFlip", "captureFlipped: no frame available")
-                    callback.onCaptureError()
-                    return
-                }
-                decoding = true
-                snapshot = cacheBuffer!!.duplicate()
-            }
-            val bitmap = decode(snapshot)
-            decoding = false
+            // 4) 解码交付；无帧可解码时报错（由服务端走失效重授权流程）。
+            val bitmap = snapshotAndDecode()
             if (bitmap != null) {
                 android.util.Log.d(
                     "ScreenFlip",
@@ -150,6 +152,7 @@ class MirrorEngine(
                 )
                 callback.onRawFrameReady(bitmap)
             } else {
+                android.util.Log.e("ScreenFlip", "captureFlipped: no frame available")
                 callback.onCaptureError()
             }
         } catch (e: Exception) {
@@ -161,7 +164,33 @@ class MirrorEngine(
         }
     }
 
+    private fun snapshotAndDecode(): Bitmap? {
+        val snapshot: ByteBuffer
+        synchronized(imageLock) {
+            if (cacheBuffer == null) return null
+            decoding = true
+            snapshot = cacheBuffer!!.duplicate()
+        }
+        val bitmap = decode(snapshot)
+        decoding = false
+        return bitmap
+    }
+
+    // 通过"先缩小一像素再复原"强制虚拟显示器重新合成，产出一帧全新画面。
+    // 此时工具栏早已隐藏（HIDE_SETTLE_MS 已过去），该帧必然不含工具栏。
+    private fun forceRecomposite() {
+        try {
+            val vd = virtualDisplay ?: return
+            if (height > 1) vd.resize(width, height - 1, dpi)
+            vd.resize(width, height, dpi)
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenFlip", "forceRecomposite error: ${e.message}")
+        }
+    }
+
     private fun copyToCache(image: Image) {
+        // 跳过虚拟显示器 resize 时产出的瞬态尺寸帧（其宽高与目标不同，拷贝会越界）。
+        if (image.width != width || image.height != height) return
         val plane = image.planes[0]
         val rowStride = plane.rowStride
         val pixelStride = plane.pixelStride
@@ -202,10 +231,11 @@ class MirrorEngine(
     }
 
     companion object {
-        // 新鲜帧等待上限：手动/自动模式等隐藏工具栏后产出的那一帧；
-        // 静态画面不产帧时用它兜底（缓存帧在静态内容下即当前画面）。
-        private const val FRESH_FRAME_WAIT_MS = 250L
+        // 隐藏工具栏后等待 GONE 传播到 SurfaceFlinger 的时间（≈2 帧 @60Hz）。
+        private const val HIDE_SETTLE_MS = 33L
         // 首帧等待上限（刚启动、缓存里还没有任何帧时）。
         private const val FIRST_FRAME_WAIT_MS = 1500L
+        // resize 强制重合成后的取帧等待上限。
+        private const val RESIZE_FRAME_WAIT_MS = 200L
     }
 }
