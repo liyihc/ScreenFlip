@@ -330,7 +330,7 @@ class ToolbarManager(
                     horizontalArrangement = Arrangement.spacedBy(T_ROW_GAP)
                 ) {
                     Checkbox(checked = autoEnabled, onCheckedChange = onAuto)
-                    Text("\u23F1 自动循环", color = Color.White, fontSize = 14.sp, softWrap = false)
+                    Text("\u23F1 自动", color = Color.White, fontSize = 14.sp, softWrap = false)
                     PauseInput()
                     Text("S", color = Color.White, fontSize = 14.sp)
                 }
