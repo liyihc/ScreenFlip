@@ -96,16 +96,16 @@ The code logs one-shot latency markers (tag `ScreenFlip`) — grep them to compa
 ```
 
 - `LATENCY capture decode Nms` — time from `captureFlipped()` until the raw bitmap is
-  ready (engine wait + decode).
+  ready (backlog drain + toolbar-hide settle + resize recompose + decode).
 - `LATENCY capture->display Nms` — time from `captureNow()`/`restoreRunnable` until
-  `DisplayActivity` is launched (includes the toolbar-hide frame wait + decode +
+  `DisplayActivity` is launched (includes the on-demand capture + decode +
   activity cold start).
 
 Procedure: `cmd start` -> [human taps allow] -> run `cmd manual` a few times with a
 static screen and with an animated screen (e.g. a timer app running) -> compare the two
-`LATENCY` markers. Expected: static/manual ~≈250ms (fresh-frame wait cap) + decode,
-animated/manual ≈ one frame time + decode. Auto-loop total should drop from ~7s to
-~5s countdown + ~small overhead.
+`LATENCY` markers. Expected: manual ≈ 1-2 vsyncs (resume frame production) + resize
+recompose (~1-2 vsyncs) + decode, well under the old ~250ms fresh-frame cap. Auto-loop
+total should stay ~5s countdown + ~small overhead.
 
 Pure-CPU regressions are covered by host unit tests (`:app:testDebugUnitTest`):
 `FlipUtilsTest` (correctness vs the old reference mapping + `perf_1080x2400`) and
@@ -119,8 +119,18 @@ Pure-CPU regressions are covered by host unit tests (`:app:testDebugUnitTest`):
   an explicit flag; `am broadcast` comes from shell uid, so `RECEIVER_NOT_EXPORTED`
   silently drops it).
 - The old `acquireLatestImage()` fallback (blocked forever on this device when called
-  synchronously on a thread) was removed: MirrorEngine now keeps a cached latest frame
-  and waits up to 250ms for a fresh one, falling back to the cache.
+  synchronously on a thread) is gone. The listener drains frames only while a capture is
+  in progress and stays idle otherwise (backpressure-freeze: the ImageReader pool fills
+  up, SurfaceFlinger stops producing, ~zero idle cost). The only non-listener
+  `acquireLatestImage()` is the backlog drain at the start of `doCapture()` — it runs
+  while the listener is idle and a frame is already queued, so it returns immediately
+  (verify on device).
+- Android 14+ forbids creating more than one `VirtualDisplay` per `MediaProjection`
+  ("Don't take multiple captures by invoking MediaProjection#createVirtualDisplay
+  multiple times on the same instance") — do NOT create/release a VD per capture.
+  MirrorEngine keeps ONE VD for the whole projection session and freezes the mirror
+  via listener backpressure when idle (do NOT `setSurface(null)` — detaching breaks
+  frame production on this device).
 - VirtualDisplay flag `FLAG_PUBLIC` produced no frames here; `FLAG_AUTO_MIRROR` works.
 - MIUI/HyperOS clamp `TYPE_APPLICATION_OVERLAY` to `alpha=0.8` regardless of
   `params.alpha` — use `DisplayActivity` (opaque) for the flipped image.

@@ -192,7 +192,6 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         }
 
         mirrorEngine = MirrorEngine(this)
-        mirrorEngine.setFlipMode(config.flipMode)
         mirrorEngine.start(
             mediaProjection!!,
             metrics.widthPixels,
@@ -214,10 +213,10 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         }
         removeRestoreRunnable()
         lastCaptureStartMs = SystemClock.uptimeMillis()
-        // 隐藏工具栏本身会触发一次重绘；引擎会先等 GONE 传播，再 resize 强制重合成
-        // 取一帧构造上不含工具栏的画面。
+        // 隐藏工具栏的同时触发引擎截图：引擎排空积压帧解除背压冻结、等 GONE 传播后
+        // resize 强制重合成，取一帧构造上不含工具栏的画面。
         toolbarManager.hide()
-        mirrorEngine.captureFlipped(lastCaptureStartMs)
+        mirrorEngine.captureFlipped()
     }
 
     private fun scheduleAutoCapture() {
@@ -231,9 +230,9 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             android.util.Log.d("ScreenFlip", "restoreRunnable firing captureFlipped")
             AppState.setShowText("")
             lastCaptureStartMs = SystemClock.uptimeMillis()
-            // 同样等"隐藏工具栏后的那一帧"，避免把工具栏截进自动截图。
+            // 同样在隐藏工具栏的同时触发引擎截图，避免把工具栏截进自动截图。
             toolbarManager.hide()
-            mirrorEngine.captureFlipped(lastCaptureStartMs)
+            mirrorEngine.captureFlipped()
         }
         handler.postDelayed(restoreRunnable!!, config.pauseDuration)
         android.util.Log.d("ScreenFlip", "auto scheduled capture in ${config.pauseDuration}ms")

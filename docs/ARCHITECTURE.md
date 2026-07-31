@@ -7,21 +7,29 @@ CPU, and shows it in a full-screen opaque `Activity` (not an overlay — MIUI cl
 
 ## Components
 
-- **MirrorEngine**: captures ONE frame via `ImageReader` + `VirtualDisplay`, flips on
-  CPU per `config.flipMode`, returns a `Bitmap`.
-  - `flipMode`: `0`=rotate 180° (default), `1`=left-right mirror, `2`=mirror+rotate 180°,
-    `3`=no flip (returns source unchanged).
-  - Capture is low-latency by design: the `OnImageAvailableListener` continuously swaps
-    a cached "latest frame" (`heldImage`, reference-only, no decode). `captureFlipped()`
-    waits up to `FRESH_FRAME_WAIT_MS` (250ms) for a frame produced *after* a caller-supplied
-    timestamp (manual mode passes the toolbar-hide time so the screenshot excludes the
-    toolbar), then decodes the cache on a dedicated `MirrorCapture` executor thread.
-    If the screen is static and no frame is produced, the cached frame is used (on a static
-    screen the cache *is* the current frame). First frame waits up to `FIRST_FRAME_WAIT_MS`
-    (1500ms). Decode (`FrameRepacker`) copies rows in bulk (`System.arraycopy` per row)
-    instead of per-pixel `ByteBuffer.put`.
+- **MirrorEngine**: captures ONE frame via `ImageReader` + `VirtualDisplay`, returns the
+  raw `Bitmap` (flip is applied later by `DisplayActivity` via `FlipUtils`).
+  - **Paused mirror when idle (battery)**: the `VirtualDisplay` is created ONCE per
+    projection session — Android 14+ forbids calling `createVirtualDisplay` more than
+    once on the same `MediaProjection` ("Don't take multiple captures..."). So the VD
+    stays alive, but the `OnImageAvailableListener` does NOT `acquireLatestImage()`
+    when idle: the ImageReader buffer pool fills up, SurfaceFlinger is blocked by
+    backpressure and stops producing frames — the mirror freezes at ~zero cost.
+    (Do NOT `virtualDisplay.setSurface(null)` to detach: on this device detaching
+    breaks frame production permanently, so the surface stays attached for the whole
+    session.)
+    `captureFlipped()` (called right after the toolbar is hidden) first drains the
+    backlog (frees a buffer slot, unfreezing the producer), switches the listener into
+    capture mode, waits `HIDE_SETTLE_MS` (33ms) for the toolbar GONE to reach the
+    compositor, then `resize`s the VD (shrink 1px then restore) to force SurfaceFlinger
+    to recompose — producing a frame that structurally cannot contain the toolbar — takes
+    the latest post-resize frame (`RESIZE_FRAME_WAIT_MS` 200ms), and switches the
+    listener back to idle (mirror freezes again). Typical capture is a few vsyncs +
+    decode; idle cost is ~zero.
+  - Decode (`FrameRepacker`) copies rows in bulk (`System.arraycopy` per row) instead of
+    per-pixel `ByteBuffer.put`.
   - `MediaProjection.registerCallback(...)` MUST be called before `createVirtualDisplay()`.
-  - `onSnapshotReady`/`onCaptureError` fire off the main thread; MirrorService re-posts to main.
+  - `onRawFrameReady`/`onCaptureError` fire off the main thread; MirrorService re-posts to main.
 - **FlipUtils**: pure `flipPixels(IntArray, w, h, mode)` fast paths — 180° = whole-array
   reversal, mirror = per-row reversal, mirror+180° = row-order reversal, none = identity.
   `applyFlip` on the main thread is now cheap (~single-digit ms at 1080×2400 on host JVM).

@@ -1,6 +1,7 @@
 package com.liyihc.screenflipper
 
 import android.graphics.Bitmap
+import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.Image
@@ -9,7 +10,6 @@ import android.media.projection.MediaProjection
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
-import android.view.Surface
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -33,26 +33,21 @@ class MirrorEngine(
     private var width = 0
     private var height = 0
     private var dpi = 0
-    private var flipMode = MirrorConfig.FLIP_ROTATE_180
 
-    // 最新帧缓存（应用自有 ByteBuffer，不是 ImageReader 的缓冲）：
-    // 监听器每来一帧就把像素拷进来并 close Image——ImageReader 缓冲池保持流动，
-    // 生产端（VirtualDisplay surface）才不会因缓冲被占满而卡死（否则缓存永远冻结）。
-    // 截图时等一帧"新鲜"画面到达/超时后，直接解码缓存。
+    // 快照缓存（应用自有 ByteBuffer，不是 ImageReader 的缓冲）：
+    // listener 只在"截图进行中"拷贝像素并 close Image——ImageReader 缓冲池保持流动，
+    // 生产端（VirtualDisplay surface）才不会因缓冲被占满而卡死。
     private val imageLock = Any()
     private var cacheBuffer: ByteBuffer? = null
     @Volatile private var cacheArrivalMs = 0L
-    @Volatile private var decoding = false
+    @Volatile private var capturePending = false
 
     private val captureExecutor: ExecutorService = Executors.newSingleThreadExecutor { r ->
         Thread(r, "MirrorCapture").apply { priority = Thread.MAX_PRIORITY }
     }
     private val captureBusy = AtomicBoolean(false)
     private var captureRequestMs = 0L
-
-    fun setFlipMode(mode: Int) {
-        flipMode = mode
-    }
+    private var stopped = true
 
     fun start(
         projection: MediaProjection,
@@ -64,11 +59,11 @@ class MirrorEngine(
         this.width = displayWidth
         this.height = displayHeight
         this.dpi = displayDpi
+        this.stopped = false
 
         imageReader = ImageReader.newInstance(
-            width, height, android.graphics.PixelFormat.RGBA_8888, 2
+            width, height, PixelFormat.RGBA_8888, 2
         )
-        val surface: Surface = imageReader!!.surface
 
         renderThread = HandlerThread("MirrorRender").also {
             it.start()
@@ -80,13 +75,14 @@ class MirrorEngine(
         projection.registerCallback(object : MediaProjection.Callback() {}, null)
 
         imageReader!!.setOnImageAvailableListener({ reader ->
+            // 空闲时不 acquire：积压帧很快占满 ImageReader 缓冲，生产端（SurfaceFlinger）
+            // 被阻塞停止产帧 —— 录屏镜像冻结，几乎零耗电。截图时先排空积压再强制重合成。
+            if (!capturePending) return@setOnImageAvailableListener
             try {
                 val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
                 try {
-                    // 解码期间跳过拷贝（避免覆盖正在解码的快照），但无论如何都 close，
-                    // 让缓冲池保持流动，生产端才不会卡死。
-                    if (!decoding) synchronized(imageLock) {
-                        if (!decoding) {
+                    synchronized(imageLock) {
+                        if (capturePending) {
                             copyToCache(img)
                             cacheArrivalMs = SystemClock.uptimeMillis()
                         }
@@ -103,48 +99,77 @@ class MirrorEngine(
             "ScreenFlip",
             width, height, dpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            surface, null, null
+            imageReader!!.surface, null, null
         )
+        // 注意：不要在这里 setSurface(null) —— 这台设备上 detach 后无法恢复产帧。
+        // 空闲省电靠 listener 不 acquire 造成的生产端背压（自动冻结镜像）。
     }
 
-    // 触发一次截图。
-    // minArrivalTimeMs 是工具栏隐藏时刻。取帧分三步：先等 GONE 真正传播到合成器
-    // （HIDE_SETTLE_MS，这之前产出的帧仍可能含工具栏），再 resize 强制 SurfaceFlinger
-    // 重新合成，最后取"resize 之后"产出的那一帧——它构造上必然不含工具栏。
-    fun captureFlipped(minArrivalTimeMs: Long = 0L) {
+    // 触发一次截图。调用方（MirrorService）在 hide 工具栏的同时调用本方法；
+    // 引擎排空积压帧解除背压冻结，等 GONE 传播后 resize 强制重合成，取到
+    // "工具栏已隐藏"的干净帧后回到空闲（listener 停止 acquire，镜像再次冻结）。
+    fun captureFlipped() {
         android.util.Log.d("ScreenFlip", "captureFlipped called")
+        if (stopped) return
         if (!captureBusy.compareAndSet(false, true)) {
             android.util.Log.d("ScreenFlip", "captureFlipped: already busy, ignore")
             return
         }
         captureRequestMs = SystemClock.uptimeMillis()
-        captureExecutor.execute { doCapture(minArrivalTimeMs) }
+        captureExecutor.execute { doCapture() }
     }
 
-    private fun doCapture(minArrivalTimeMs: Long) {
+    private fun doCapture() {
+        val vd = virtualDisplay
+        val reader = imageReader
+        if (vd == null || reader == null) {
+            android.util.Log.e("ScreenFlip", "captureFlipped: engine not ready")
+            callback.onCaptureError()
+            captureBusy.set(false)
+            return
+        }
         try {
-            // 1) 等 GONE 传播：WindowManager 在下一个 vsync 的 relayout 遍历里才移除窗口层，
-            //    隐藏生效前产出的帧仍含工具栏，一律忽略。
-            val settleDeadline =
-                maxOf(minArrivalTimeMs, SystemClock.uptimeMillis()) + HIDE_SETTLE_MS
+            // 1) 排空积压帧，解除生产端阻塞（此刻 listener 仍处于 idle，不会并发 acquire）。
+            //    空闲时镜像因背压冻结，积压帧就是"上次截图之后冻结的画面"。
+            try { reader.acquireLatestImage()?.close() } catch (_: Exception) {}
+
+            // 2) 进入截图模式：listener 开始把新帧拷贝进快照缓存。
+            synchronized(imageLock) {
+                cacheArrivalMs = 0L
+            }
+            capturePending = true
+
+            // 3) 等 GONE 传播：WindowManager 在下一个 vsync 的 relayout 遍历里才移除
+            //    工具栏窗口层，隐藏生效前产出的帧仍含工具栏，一律跳过（resize 帧才取）。
+            val settleDeadline = SystemClock.uptimeMillis() + HIDE_SETTLE_MS
             while (SystemClock.uptimeMillis() < settleDeadline) {
-                Thread.sleep(5)
+                if (!sleepQuietly(5)) break
             }
 
-            // 2) 强制重合成：resize 迫使 SurfaceFlinger 重新合成，产出一帧必然不含工具栏的画面。
-            forceRecomposite()
+            // 4) resize 强制 SurfaceFlinger 重新合成：此刻 hide 工具栏已传播到合成器，
+            //    resize 后产出的帧构造上必然不含工具栏。
+            forceRecomposite(vd)
             val forceMs = SystemClock.uptimeMillis()
 
-            // 3) 取"resize 之后"产出的那一帧（静默期/瞬态尺寸帧已被 copyToCache 过滤）。
-            val waitMs = if (cacheArrivalMs == 0L) FIRST_FRAME_WAIT_MS else RESIZE_FRAME_WAIT_MS
-            val deadline = forceMs + waitMs
+            val deadline = forceMs + RESIZE_FRAME_WAIT_MS
             while (SystemClock.uptimeMillis() < deadline) {
                 if (cacheArrivalMs > forceMs) break
-                Thread.sleep(10)
+                if (!sleepQuietly(10)) break
             }
 
-            // 4) 解码交付；无帧可解码时报错（由服务端走失效重授权流程）。
-            val bitmap = snapshotAndDecode()
+            val snapshot: ByteBuffer
+            synchronized(imageLock) {
+                if (cacheArrivalMs == 0L) {
+                    android.util.Log.e("ScreenFlip", "captureFlipped: no frame available")
+                    callback.onCaptureError()
+                    return
+                }
+                snapshot = cacheBuffer!!.duplicate()
+                // 取完快照立即退出截图模式：decode 读的是 cacheBuffer 的共享 backing array，
+                // 若 listener 继续 repack 会并发写同一块内存导致花屏（旧 decoding 标志同因）。
+                capturePending = false
+            }
+            val bitmap = decode(snapshot)
             if (bitmap != null) {
                 android.util.Log.d(
                     "ScreenFlip",
@@ -156,33 +181,21 @@ class MirrorEngine(
                 callback.onCaptureError()
             }
         } catch (e: Exception) {
-            decoding = false
             android.util.Log.e("ScreenFlip", "captureFlipped error: ${e.message}")
             callback.onCaptureError()
         } finally {
+            // 回到空闲：listener 不再 acquire，镜像在下次截图前保持背压冻结。
+            capturePending = false
             captureBusy.set(false)
         }
     }
 
-    private fun snapshotAndDecode(): Bitmap? {
-        val snapshot: ByteBuffer
-        synchronized(imageLock) {
-            if (cacheBuffer == null) return null
-            decoding = true
-            snapshot = cacheBuffer!!.duplicate()
-        }
-        val bitmap = decode(snapshot)
-        decoding = false
-        return bitmap
-    }
-
     // 通过"先缩小一像素再复原"强制虚拟显示器重新合成，产出一帧全新画面。
-    // 此时工具栏早已隐藏（HIDE_SETTLE_MS 已过去），该帧必然不含工具栏。
-    private fun forceRecomposite() {
+    // 此时工具栏早已隐藏，该帧必然不含工具栏。
+    private fun forceRecomposite(virtualDisplay: VirtualDisplay) {
         try {
-            val vd = virtualDisplay ?: return
-            if (height > 1) vd.resize(width, height - 1, dpi)
-            vd.resize(width, height, dpi)
+            if (height > 1) virtualDisplay.resize(width, height - 1, dpi)
+            virtualDisplay.resize(width, height, dpi)
         } catch (e: Exception) {
             android.util.Log.e("ScreenFlip", "forceRecomposite error: ${e.message}")
         }
@@ -202,6 +215,16 @@ class MirrorEngine(
         FrameRepacker.repackInto(cacheBuffer!!, width, height, rowStride, pixelStride, src)
     }
 
+    private fun sleepQuietly(ms: Long): Boolean {
+        return try {
+            Thread.sleep(ms)
+            true
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+    }
+
     private fun decode(buffer: ByteBuffer): Bitmap? {
         return try {
             val raw = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -216,9 +239,11 @@ class MirrorEngine(
     }
 
     fun stop() {
-        decoding = true
+        stopped = true
         captureExecutor.shutdownNow()
         synchronized(imageLock) {
+            capturePending = false
+            virtualDisplay?.setSurface(null)
             virtualDisplay?.release()
             virtualDisplay = null
             imageReader?.setOnImageAvailableListener(null, null)
@@ -233,8 +258,6 @@ class MirrorEngine(
     companion object {
         // 隐藏工具栏后等待 GONE 传播到 SurfaceFlinger 的时间（≈2 帧 @60Hz）。
         private const val HIDE_SETTLE_MS = 33L
-        // 首帧等待上限（刚启动、缓存里还没有任何帧时）。
-        private const val FIRST_FRAME_WAIT_MS = 1500L
         // resize 强制重合成后的取帧等待上限。
         private const val RESIZE_FRAME_WAIT_MS = 200L
     }
