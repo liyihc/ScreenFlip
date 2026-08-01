@@ -108,8 +108,9 @@ recompose (~1-2 vsyncs) + decode, well under the old ~250ms fresh-frame cap. Aut
 total should stay ~5s countdown + ~small overhead.
 
 Pure-CPU regressions are covered by host unit tests (`:app:testDebugUnitTest`):
-`FlipUtilsTest` (correctness vs the old reference mapping + `perf_1080x2400`) and
-`FrameRepackerTest` (row-padding handling + `perf_1080x2400_withPadding`).
+`FrameRepackerTest` (row-padding handling + `perf_1080x2400_withPadding`). The flip itself
+is now a GPU view transform (`rotation`/`scaleX`/`scaleY` on the `ImageView`), so there is
+no pure-CPU flip logic to test — verify the transform mapping on device.
 
 ## Gotchas (things that broke during dev)
 

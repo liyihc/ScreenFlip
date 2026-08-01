@@ -22,7 +22,6 @@ import kotlinx.coroutines.launch
 class DisplayActivity : Activity() {
 
     private var imageView: ImageView? = null
-    private var currentBitmap: Bitmap? = null
     private var lastRenderedFrame: Bitmap? = null
     private var lastRenderedMode = -1
     private var closeReason: String? = null
@@ -78,24 +77,34 @@ class DisplayActivity : Activity() {
     private fun renderFrame(frame: Bitmap?, flipMode: Int) {
         val view = imageView ?: return
         if (frame == null) {
-            if (currentBitmap == null) {
+            if (lastRenderedFrame == null) {
                 closeReason = "no_frame"
                 android.util.Log.d("ScreenFlip", "DisplayActivity close by no frame")
                 finish()
             }
             return
         }
-        // onCreate 直接渲染一次 + combine 初始发射会再渲染一次，且 setRawFrame 可能在
-        // 两次之间 recycle 掉帧源；用"同一帧源+同翻转模式"短路，避免 recycle 正在显示的
-        // bitmap 后崩溃（Canvas: trying to use a recycled bitmap）。
+        // onCreate 直接渲染一次 + combine 初始发射会再渲染一次；用"同一帧源+同翻转模式"
+        // 短路，避免重复设置。bitmap 所有权归 AppState（setRawFrame 负责 recycle），
+        // 这里只显示，不做像素操作。
         if (frame === lastRenderedFrame && flipMode == lastRenderedMode) return
         lastRenderedFrame = frame
         lastRenderedMode = flipMode
-        val flipped = FlipUtils.applyFlip(frame, flipMode)
-        val old = currentBitmap
-        currentBitmap = flipped
-        view.setImageBitmap(flipped)
-        old?.recycle()
+        view.setImageBitmap(frame)
+        applyFlipTransform(view, flipMode)
+    }
+
+    // 翻转不做像素拷贝，交给 GPU 硬件加速渲染在合成时完成：
+    // 180°=rotation(180)、左右镜像=scaleX(-1)、镜像+180°=上下翻转=scaleY(-1)、无=恒等。
+    private fun applyFlipTransform(view: ImageView, flipMode: Int) {
+        view.rotation = 0f
+        view.scaleX = 1f
+        view.scaleY = 1f
+        when (flipMode) {
+            MirrorConfig.FLIP_ROTATE_180 -> view.rotation = 180f
+            MirrorConfig.FLIP_MIRROR -> view.scaleX = -1f
+            MirrorConfig.FLIP_MIRROR_ROTATE_180 -> view.scaleY = -1f
+        }
     }
 
     override fun onDestroy() {
@@ -104,8 +113,6 @@ class DisplayActivity : Activity() {
         android.util.Log.d("ScreenFlip", "DisplayActivity onDestroy reason=${closeReason ?: "unknown"}")
         AppState.setIsDisplayShowing(false)
         sendBroadcast(Intent(ACTION_DISMISSED).putExtra(EXTRA_DISPLAY_SEQ, displaySeq))
-        currentBitmap?.recycle()
-        currentBitmap = null
         imageView?.setImageBitmap(null)
         imageView = null
     }

@@ -8,7 +8,7 @@ CPU, and shows it in a full-screen opaque `Activity` (not an overlay — MIUI cl
 ## Components
 
 - **MirrorEngine**: captures ONE frame via `ImageReader` + `VirtualDisplay`, returns the
-  raw `Bitmap` (flip is applied later by `DisplayActivity` via `FlipUtils`).
+  raw `Bitmap` (flip is applied later by `DisplayActivity` as a GPU view transform).
   - **Paused mirror when idle (battery)**: the `VirtualDisplay` is created ONCE per
     projection session — Android 14+ forbids calling `createVirtualDisplay` more than
     once on the same `MediaProjection` ("Don't take multiple captures..."). So the VD
@@ -30,12 +30,14 @@ CPU, and shows it in a full-screen opaque `Activity` (not an overlay — MIUI cl
     per-pixel `ByteBuffer.put`.
   - `MediaProjection.registerCallback(...)` MUST be called before `createVirtualDisplay()`.
   - `onRawFrameReady`/`onCaptureError` fire off the main thread; MirrorService re-posts to main.
-- **FlipUtils**: pure `flipPixels(IntArray, w, h, mode)` fast paths — 180° = whole-array
-  reversal, mirror = per-row reversal, mirror+180° = row-order reversal, none = identity.
-  `applyFlip` on the main thread is now cheap (~single-digit ms at 1080×2400 on host JVM).
-- **DisplayActivity**: full-screen opaque Activity showing the flipped `Bitmap`
-  (`translucent=false`, black bg). Tap to `finish()`. Bitmap passed in-process via
-  `FlipBitmapHolder` (no Intent parceling of large bitmaps).
+- **DisplayActivity flip = GPU view transform**: no CPU pixel work. The raw frame is set on
+  the `ImageView` and the flip is done by hardware rendering (HWUI → GPU) via View properties:
+  180° = `rotation(180)`, left-right mirror = `scaleX(-1)`, mirror+180° = vertical flip =
+  `scaleY(-1)`, none = identity. Pivot defaults to the view center, so ±scale mirrors exactly.
+- **DisplayActivity**: full-screen opaque Activity showing the raw `Bitmap` with the flip
+  transform above (`translucent=false`, black bg). Tap to `finish()`. Bitmap passed
+  in-process via `FlipBitmapHolder` (no Intent parceling of large bitmaps). Bitmap ownership
+  stays with `AppState` (`setRawFrame` recycles); the Activity only displays it.
 - **OverlayManager**: black backdrop `ImageView`, only used hidden during capture.
   The flipped image is shown by `DisplayActivity`, not the overlay.
 - **ToolbarManager**: draggable floating window. Buttons: ⏱ auto / 👆 manual /
