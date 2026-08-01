@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 object AppState {
 
-    enum class State { IDLE, WAITING, OPERATING_AUTO, OPERATING_MANUAL, SHOWING }
+    enum class State { IDLE, WAITING, CAPTURING, SHOWING }
 
     private val _state = MutableStateFlow(State.IDLE)
     val state: StateFlow<State> = _state.asStateFlow()

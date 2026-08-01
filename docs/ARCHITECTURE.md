@@ -40,10 +40,11 @@ CPU, and shows it in a full-screen opaque `Activity` (not an overlay — MIUI cl
   The flipped image is shown by `DisplayActivity`, not the overlay.
 - **ToolbarManager**: draggable floating window. Buttons: ⏱ auto / 👆 manual /
   🔄 redo / 🔁 flip. Hidden (`GONE`) during capture. Flip button cycles `flipMode`.
-- **MirrorService**: state machine `WAITING -> OPERATING_AUTO|OPERATING_MANUAL ->
-  SHOWING`. Auto captures after `pauseDuration` ms; manual captures on notification
-  "完成截图" (`ACTION_MANUAL_DONE`). Foreground `mediaProjection` service. Also hosts
-  the `ACTION_DEBUG` BroadcastReceiver (see DEBUGGING.md).
+- **MirrorService**: state machine `WAITING -> CAPTURING -> SHOWING`. The Auto Loop's
+  countdown is a layer on WAITING (`autoEnabled` + a scheduled capture). Auto captures
+  after `pauseDuration` ms; manual captures immediately on toolbar tap; both enter
+  `CAPTURING` (Toolbar hidden, Frame in flight). Foreground `mediaProjection` service.
+  Also hosts the `ACTION_DEBUG` BroadcastReceiver (see DEBUGGING.md).
 - **MirrorConfig**: `SharedPreferences` wrapper — `pause_duration` (5000ms),
   `toolbar_x/y`, `render_fps_cap` (unused), `flip_mode` (0/1/2).
 - **MainActivity**: permission order SYSTEM_ALERT_WINDOW -> POST_NOTIFICATIONS (API33+)

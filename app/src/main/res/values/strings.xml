@@ -16,6 +16,5 @@
     <string name="notif_shown">Flipped image shown</string>
     <string name="notif_projection_invalid">Screen recording permission expired; tap Start to re-authorize</string>
     <string name="notif_action_start">Start</string>
-    <string name="notif_action_done">Screenshot</string>
     <string name="notif_action_stop">Stop</string>
 </resources>

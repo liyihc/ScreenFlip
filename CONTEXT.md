@@ -70,11 +70,6 @@ The interval (user-set in seconds, default 5s = 5000 ms) between dismissing the
 Display and the next automatic Frame capture in the Auto Loop.
 _Avoid_: countdown, delay, timer
 
-**Arming**:
-The act of entering the operating state for an Operation — the app is committed to
-capturing a Frame but has not yet done so.
-_Avoid_: starting capture
-
 ### Engine & pipeline
 
 **Projection**:
@@ -127,10 +122,15 @@ _Avoid_: mini mode, collapsed
 ### State
 
 **State**:
-The MirrorService state-machine value: IDLE, WAITING, OPERATING_AUTO,
-OPERATING_MANUAL, SHOWING. It tracks where the app is in the Operation lifecycle.
-Auto Mode's looping is layered on top of these States via `autoEnabled` + a
-suspended/resumed countdown, rather than living entirely inside OPERATING_AUTO.
+The MirrorService state-machine value: IDLE, WAITING, CAPTURING, SHOWING. It tracks
+where the app is in the Operation lifecycle.
+- **IDLE**: no Projection session — before the first grant, or after invalidation.
+- **WAITING**: Projection granted, Toolbar visible and waiting. The Auto Loop's
+  countdown is a layer on top of this State (`autoEnabled` + a scheduled capture),
+  not a State of its own.
+- **CAPTURING**: a capture is in flight — Toolbar hidden, the engine taking a Frame.
+  A short-lived transient state shared by Auto and Manual.
+- **SHOWING**: the Display is showing the Snapshot.
 _Avoid_: status (status is the human-readable label shown in the Toolbar/notification; State is the machine value)
 
 ### Runtime state & MVVM

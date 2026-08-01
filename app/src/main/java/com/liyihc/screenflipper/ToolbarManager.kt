@@ -301,9 +301,7 @@ class ToolbarManager(
         onFlip: () -> Unit
     ) {
         val idle = state == AppState.State.IDLE
-        val waitingOrOperating = state == AppState.State.WAITING ||
-            state == AppState.State.OPERATING_AUTO ||
-            state == AppState.State.OPERATING_MANUAL
+        val waiting = state == AppState.State.WAITING
         val showing = state == AppState.State.SHOWING
 
         Column(
@@ -324,7 +322,7 @@ class ToolbarManager(
                 ) { Text(context.getString(R.string.start_button), maxLines = 1) }
             }
 
-            if (waitingOrOperating) {
+            if (waiting) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(T_ROW_GAP)
@@ -370,9 +368,7 @@ class ToolbarManager(
         onFlip: () -> Unit
     ) {
         val idle = state == AppState.State.IDLE
-        val waitingOrOperating = state == AppState.State.WAITING ||
-            state == AppState.State.OPERATING_AUTO ||
-            state == AppState.State.OPERATING_MANUAL
+        val waiting = state == AppState.State.WAITING
         val showing = state == AppState.State.SHOWING
 
         Column(
@@ -400,7 +396,7 @@ class ToolbarManager(
                 )
             }
 
-            if (waitingOrOperating) {
+            if (waiting) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(C_ROW_GAP)

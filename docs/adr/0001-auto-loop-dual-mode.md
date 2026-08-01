@@ -24,7 +24,7 @@ Accepted — 2026-07-19
 
 ## Decision
 
-1. 自动模式 = 受 `autoEnabled`（内存布尔）驱动的**持续循环**，不再是无状态的 OPERATING_AUTO 瞬时态。
+1. 自动模式 = 受 `autoEnabled`（内存布尔）驱动的**持续循环**，倒计时叠加在 WAITING 状态上，不再用瞬时 operating 状态表达。
 2. 自动循环的计时锚点是"退出 Display 预览（State 回到 WAITING）的那一刻"，而非"点自动按钮的时刻"。
 3. 开启自动开关的瞬间若已停在 WAITING，立即开始第一次倒计时。
 4. 手动 Operation 优先级高于自动：手动进预览时挂起自动；退出后自动重置倒计时、重新跑。
