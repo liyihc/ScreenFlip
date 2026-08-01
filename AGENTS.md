@@ -1,8 +1,8 @@
 # AGENTS.md
 
 Android app (Kotlin, namespace `com.liyihc.screenflipper`). Screen-mirror tool: captures
-one frame via `MediaProjection` + `ImageReader`, flips it on CPU, shows it full-screen
-in an opaque `Activity`.
+one frame via `MediaProjection` + `ImageReader`, flips it with a GPU view transform in
+`DisplayActivity`, shows it full-screen in an opaque `Activity`.
 
 ## Build (no system JDK — set manually)
 
