@@ -56,7 +56,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                     "auto" -> { android.util.Log.d("ScreenFlip", "DEBUG auto"); onAutoToggled(!AppState.autoEnabled.value) }
                     "manual" -> { android.util.Log.d("ScreenFlip", "DEBUG manual"); onManualClicked() }
                     "reset" -> { android.util.Log.d("ScreenFlip", "DEBUG reset"); resetToWaiting() }
-                    "flip" -> { android.util.Log.d("ScreenFlip", "DEBUG flip"); onFlipModeClicked() }
+                    "flip" -> { android.util.Log.d("ScreenFlip", "DEBUG flip"); toolbarManager.cycleFlipMode() }
                     "stop" -> { android.util.Log.d("ScreenFlip", "DEBUG stop"); onExitClicked() }
                     "resume" -> { toolbarManager.attach(); toolbarManager.show() }
                 }
@@ -107,14 +107,8 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     }
 
     private fun collectConfig() {
-        config.pauseDurationFlow
-            .onEach { toolbarManager.setPauseSeconds(it / 1000) }
-            .launchIn(serviceScope)
         config.flipModeFlow
-            .onEach {
-                AppState.setFlipMode(it)
-                toolbarManager.setFlipModeLabel(it)
-            }
+            .onEach { AppState.setFlipMode(it) }
             .launchIn(serviceScope)
     }
 
@@ -143,7 +137,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
                     "auto" -> onAutoToggled(!AppState.autoEnabled.value)
                     "manual" -> onManualClicked()
                     "reset" -> resetToWaiting()
-                    "flip" -> onFlipModeClicked()
+                    "flip" -> toolbarManager.cycleFlipMode()
                     "resume" -> { toolbarManager.attach(); toolbarManager.show() }
                 }
             }
@@ -158,8 +152,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         toolbarManager.attach()
         state = AppState.State.IDLE
         AppState.setShowText("")
-        toolbarManager.setFlipModeLabel(config.flipMode)
-        toolbarManager.setPauseSeconds(config.pauseDuration / 1000)
+        AppState.setFlipMode(config.flipMode)
         uiReady = true
         android.util.Log.d("ScreenFlip", "UI prepared, idle state")
     }
@@ -306,27 +299,6 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         removeCountdownRunnable()
         AppState.setShowText("")
         AppState.setCountdownSeconds(-1)
-    }
-
-    override fun onFlipModeClicked() {
-        val next = (config.flipMode + 1) % 4
-        config.flipMode = next
-        AppState.setFlipMode(next)
-        toolbarManager.setFlipModeLabel(next)
-        android.util.Log.d("ScreenFlip", "flip mode changed to $next")
-    }
-
-    override fun onPauseSecondsChanged(seconds: Long) {
-        config.pauseDuration = seconds * 1000L
-        android.util.Log.d("ScreenFlip", "pause duration set to ${seconds}s")
-    }
-
-    override fun onCompactToggled() {
-        toolbarManager.setCompact(!isCompact())
-    }
-
-    private fun isCompact(): Boolean {
-        return toolbarManager.isCompact()
     }
 
     private fun onDisplayDismissed(seq: Long) {

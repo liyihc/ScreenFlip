@@ -74,9 +74,6 @@ class ToolbarManager(
         fun onAutoToggled(enabled: Boolean)
         fun onManualClicked()
         fun onExitClicked()
-        fun onFlipModeClicked()
-        fun onPauseSecondsChanged(seconds: Long)
-        fun onCompactToggled()
     }
 
     // 拖动状态（声明在类成员上，供 TitleBar 的 pointerInput 闭包读写）。
@@ -183,7 +180,7 @@ class ToolbarManager(
                     onStart = callback::onStartClicked,
                     onAuto = callback::onAutoToggled,
                     onManual = callback::onManualClicked,
-                    onFlip = callback::onFlipModeClicked
+                    onFlip = ::cycleFlipMode
                 )
             } else {
                 FullLayout(
@@ -195,7 +192,7 @@ class ToolbarManager(
                     onAuto = callback::onAutoToggled,
                     onManual = callback::onManualClicked,
                     onExit = callback::onExitClicked,
-                    onFlip = callback::onFlipModeClicked
+                    onFlip = ::cycleFlipMode
                 )
             }
         }
@@ -233,7 +230,7 @@ class ToolbarManager(
                             longPressRunnable?.let { handler.removeCallbacks(it) }
                             val r = Runnable {
                                 longPressFired = true
-                                callback.onCompactToggled()
+                                AppState.setCompactMode(!AppState.compactMode.value)
                             }
                             longPressRunnable = r
                             handler.postDelayed(r, 400L)
@@ -455,7 +452,7 @@ class ToolbarManager(
                     onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
                         if (!hasFocus) {
                             val v = text.toString().toLongOrNull()
-                            if (v != null && v > 0) callback.onPauseSecondsChanged(v)
+                            if (v != null && v > 0) config.pauseDuration = v * 1000L
                         }
                     }
                 }
@@ -480,18 +477,6 @@ class ToolbarManager(
         }
     }
 
-    fun setPauseSeconds(seconds: Long) {
-        // PauseInput 直接从 config 读取，无需手动同步。
-    }
-
-    fun setCompact(isCompact: Boolean) {
-        AppState.setCompactMode(isCompact)
-    }
-
-    fun setFlipModeLabel(mode: Int) {
-        AppState.setFlipMode(mode)
-    }
-
     fun hide() {
         rootView?.visibility = View.GONE
     }
@@ -512,7 +497,13 @@ class ToolbarManager(
 
     fun isAttached(): Boolean = attached
 
-    fun isCompact(): Boolean = AppState.compactMode.value
+    // 循环切换翻转模式：写 config 持久化，同时同步到 AppState 供 DisplayActivity 使用。
+    fun cycleFlipMode() {
+        val next = (config.flipMode + 1) % 4
+        config.flipMode = next
+        AppState.setFlipMode(next)
+        android.util.Log.d("ScreenFlip", "flip mode changed to $next")
+    }
 
     // 根据 flipMode 返回翻转按钮的中文标签。
     private fun flipLabel(mode: Int): String = when (mode) {

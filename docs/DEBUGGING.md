@@ -8,7 +8,7 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 ```
 
 No system JDK — `JAVA_HOME` must be Android Studio's bundled JBR (note the space in
-`Android Studio`). Device already connected; `& $adb devices` to confirm.
+`Android Studio`). Just install directly — no need to check device connection.
 
 ## Known hang (unsolved)
 
