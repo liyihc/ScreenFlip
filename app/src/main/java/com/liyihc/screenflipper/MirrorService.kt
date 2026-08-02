@@ -9,6 +9,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjection
@@ -148,7 +149,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     private fun prepareUi() {
         if (uiReady) return
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notif_tap_to_start)))
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(getString(R.string.notif_tap_to_start)),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        )
         toolbarManager.attach()
         state = AppState.State.IDLE
         AppState.setShowText("")
@@ -162,6 +167,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         toolbarManager.attach()
         val projectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(getString(R.string.notif_standby)),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        )
         mediaProjection = projectionManager.getMediaProjection(Activity.RESULT_OK, data)
         projectionInvalidated = false
 
@@ -357,6 +367,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         }
         mediaProjection?.stop()
         mediaProjection = null
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification(getString(R.string.notif_projection_invalid)),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        )
         state = AppState.State.IDLE
         toolbarManager.show()
         updateNotification(getString(R.string.notif_projection_invalid))
