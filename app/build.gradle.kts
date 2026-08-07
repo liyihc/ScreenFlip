@@ -53,3 +53,19 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+tasks.configureEach {
+    if (name == "assembleDebug") {
+        doLast {
+            val apk = outputs.files.firstOrNull { it.extension == "apk" }
+                ?: return@doLast
+            val rel = apk.absolutePath.removePrefix("${project.rootDir}${File.separator}")
+            println()
+            println("==============================================")
+            println("APK 已生成: $rel")
+            println("安装方式:")
+            println("  adb install -r $rel")
+            println("==============================================")
+        }
+    }
+}
