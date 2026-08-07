@@ -38,3 +38,17 @@ then everything else runs hands-free via ADB broadcasts (see `docs/DEBUGGING.md`
 not assume the work is verified just because `assembleDebug` passed — real verification
 requires the device + the human permission tap + ADB-driven state checks. Ask the user
 to approve entering this flow rather than running it unprompted.
+
+## Agent skills
+
+### Issue tracker
+
+spec/ticket 以本地 markdown 文件形式存放在 `docs/specs/<feature>/`。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+默认五角色词汇：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单一上下文：仓库根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。
