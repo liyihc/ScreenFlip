@@ -15,13 +15,13 @@ video stream.
 _Avoid_: screenshot, image, capture (use "Frame" as the noun; "capture" is the verb)
 
 **Flip**:
-The CPU-side geometric transformation applied to a captured Frame to produce the
+The geometric transformation applied to a captured Frame to produce the
 visible output. The kind of Flip is selected by the Flip Mode.
 _Avoid_: transform, rotate, mirror (these name specific Flip Modes, not the general act)
 
 **Flip Mode**:
-An enumerable selector (0/1/2) determining which geometric transformation a Flip
-applies. `0` = rotate 180°, `1` = left-right mirror, `2` = left-right mirror then
+An enumerable selector  determining which geometric transformation a Flip
+applies, like rotating 180°, left-right mirror, and left-right mirror then
 rotate 180°.
 _Avoid_: flip type, orientation
 

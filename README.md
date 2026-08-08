@@ -16,6 +16,8 @@ Android screen-mirror tool: captures one screen frame, flips it on the CPU, and 
    - **Long-press the title bar**: toggle the compact/simplified layout.
 4. Tap the screen to close the full-screen preview.
 
+中文
+
 1. 安装并启动 App，授予悬浮窗与通知权限。
 2. 点击工具栏「开始」，在系统弹窗中选择**允许**以授予屏幕录制权限（每次安装/重启服务后都需要手动点一次）。
 3. 使用工具栏按钮：
@@ -41,6 +43,8 @@ No system JDK on this machine; set `JAVA_HOME` manually before building.
 
 - `docs/ARCHITECTURE.md` — components and state machine.
 - `docs/DEBUGGING.md` — ADB debug commands and environment config.
+
+中文
 
 - `docs/ARCHITECTURE.md` — 组件与状态机说明。
 - `docs/DEBUGGING.md` — ADB 调试命令与环境配置。

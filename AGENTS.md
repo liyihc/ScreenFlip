@@ -1,8 +1,6 @@
 # AGENTS.md
 
-Android app (Kotlin, namespace `com.liyihc.screenflipper`). Screen-mirror tool: captures
-one frame via `MediaProjection` + `ImageReader`, flips it with a GPU view transform in
-`DisplayActivity`, shows it full-screen in an opaque `Activity`.
+Android app . Screen-mirror tool: captures one frame , shows while flipping it full-screen.
 
 ## Build (no system JDK — set manually)
 
@@ -19,6 +17,15 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 - `docs/ARCHITECTURE.md` — components, flipMode, state machine.
 - `docs/DEBUGGING.md` — ADB debug commands, verification loop, gotchas.
 
+## After finishing code changes
+
+Before declaring a task done, **confirm with the user whether to start the on-device
+debugging flow.** This flow is: the human taps the screen-recording permission grant,
+then everything else runs hands-free via ADB broadcasts (see `docs/DEBUGGING.md`). Do
+not assume the work is verified just because `assembleDebug` passed — real verification
+requires the device + the human permission tap + ADB-driven state checks. Ask the user
+to approve entering this flow rather than running it unprompted.
+
 ## Key facts for every session
 
 - **Screen recording permission is ALWAYS a manual tap.** After `cmd start` (or the
@@ -29,15 +36,6 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
   see `docs/DEBUGGING.md` for the full command table and verification loop.
 - MIUI/HyperOS clamp `TYPE_APPLICATION_OVERLAY` to `alpha=0.8` (system limit) — the
   flipped image is shown by `DisplayActivity` (opaque), not an overlay.
-
-## After finishing code changes
-
-Before declaring a task done, **confirm with the user whether to start the on-device
-debugging flow.** This flow is: the human taps the screen-recording permission grant,
-then everything else runs hands-free via ADB broadcasts (see `docs/DEBUGGING.md`). Do
-not assume the work is verified just because `assembleDebug` passed — real verification
-requires the device + the human permission tap + ADB-driven state checks. Ask the user
-to approve entering this flow rather than running it unprompted.
 
 ## Agent skills
 
