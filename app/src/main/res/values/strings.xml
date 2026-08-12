@@ -17,4 +17,8 @@
     <string name="notif_projection_invalid">Screen recording permission expired; tap Start to re-authorize</string>
     <string name="notif_action_start">Start</string>
     <string name="notif_action_stop">Stop</string>
+    <string name="overlay_guide_title">Enable "Show pop-ups in background"</string>
+    <string name="overlay_guide_message">The system is blocking this app from showing the floating toolbar. Please enable "Show pop-ups in background" in the permission settings, then try again.</string>
+    <string name="overlay_guide_open">Enable</string>
+    <string name="notif_bg_launch_blocked">Blocked: enable "Show pop-ups in background" in app permission settings</string>
 </resources>

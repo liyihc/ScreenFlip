@@ -100,8 +100,8 @@ class ToolbarManager(
     private val C_PAD_H = 8.dp          // 精简模式按钮横向内边距
     private val C_PAD_V = 2.dp          // 精简模式按钮纵向内边距
 
-    fun attach() {
-        if (attached) return
+    fun attach(): Boolean {
+        if (attached) return true
         val compose = ComposeView(context)
         compose.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         // ComposeView 挂在 WindowManager 上，没有宿主 LifecycleOwner，
@@ -140,10 +140,16 @@ class ToolbarManager(
             android.util.Log.d("ScreenFlip", "Toolbar attached ok")
         } catch (e: Exception) {
             android.util.Log.e("ScreenFlip", "Toolbar attach failed: ${e.message}")
+            compose.disposeComposition()
+            composeView = null
+            rootView = null
+            attached = false
+            return false
         }
         composeView = compose
         rootView = compose
         attached = true
+        return true
     }
 
     // 工具栏根：根据 compact 状态在完整布局与精简布局之间切换。

@@ -48,6 +48,27 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     private var projectionInvalidated = false
     private var lastCaptureStartMs = 0L
 
+    // 后台启动探测（ADR 0003）：startActivity(DisplayActivity) 后等待约 800ms，
+    // 若 onCreate 未执行（per-launch 标记未置位）则判定后台启动被系统拦截。
+    private val launchProbeRunnable = object : Runnable {
+        override fun run() {
+            when (LaunchProbe.outcome(AppState.hasDisplayAppeared(), AppState.isDisplayShowing.value)) {
+                LaunchProbe.Outcome.APPEARED -> {
+                    state = AppState.State.SHOWING
+                    toolbarManager.show()
+                    AppState.setShowText(getString(R.string.notif_shown))
+                    updateNotification(getString(R.string.notif_shown))
+                    android.util.Log.d("ScreenFlip", "launch probe: Display appeared, state=SHOWING")
+                }
+                LaunchProbe.Outcome.APPEARED_THEN_DISMISSED -> {
+                    backToWaiting()
+                    android.util.Log.d("ScreenFlip", "launch probe: Display appeared then dismissed, back to WAITING")
+                }
+                LaunchProbe.Outcome.BLOCKED -> onDisplayLaunchBlocked()
+            }
+        }
+    }
+
     private val debugReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             android.util.Log.d("ScreenFlip", "DEBUG receiver got action=${intent?.action} cmd=${intent?.getStringExtra("cmd")}")
@@ -104,6 +125,12 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             Context.RECEIVER_EXPORTED
         )
         registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        // 仅本应用 MainActivity（引导返回）发送，无需导出给其他应用
+        registerReceiver(
+            retryDisplayReceiver,
+            IntentFilter(ACTION_RETRY_DISPLAY),
+            Context.RECEIVER_NOT_EXPORTED
+        )
         collectConfig()
     }
 
@@ -290,6 +317,11 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
     }
 
     private fun resetToWaiting() {
+        backToWaiting()
+    }
+
+    // 回 WAITING：展示工具栏、更新通知、若自动循环开启则重排下一次捕获。
+    private fun backToWaiting() {
         state = AppState.State.WAITING
         AppState.setShowText("")
         toolbarManager.show()
@@ -304,9 +336,66 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         stopSelf()
     }
 
+    // 后台启动探测判定被拦（R-Q5）：不进 SHOWING、回 WAITING、更新通知说明权限原因、
+    // 停掉自动循环（避免每 5 秒叠弹窗），并拉起引导对话框。
+    // rawFrame 保留在 AppState——用户从权限设置页返回后需用它重放 DisplayActivity（R-Q6）。
+    private fun onDisplayLaunchBlocked() {
+        if (state == AppState.State.IDLE) return
+        android.util.Log.e(
+            "ScreenFlip",
+            "background launch blocked: DisplayActivity did not appear within ${DISPLAY_LAUNCH_TIMEOUT_MS}ms"
+        )
+        cancelAll()
+        AppState.setAutoEnabled(false)
+        state = AppState.State.WAITING
+        AppState.setShowText("")
+        toolbarManager.show()
+        updateNotification(getString(R.string.notif_bg_launch_blocked))
+        showBackgroundPopupGuide()
+    }
+
+    // 拉起权限引导（MainActivity 弹对话框 -> 打开「后台弹出窗口」权限设置页）。
+    // 不按生命周期去重：每次被拦都弹（R-Q4/R-Q7）。若本次启动本身也被系统拦截，
+    // startActivity 静默失败，用户仍能通过通知看到权限原因。
+    private fun showBackgroundPopupGuide() {
+        android.util.Log.e("ScreenFlip", "background launch blocked, guiding user to enable Background Popup Permission")
+        try {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                action = MainActivity.ACTION_SHOW_OVERLAY_GUIDE
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenFlip", "start overlay guide failed: ${e.message}")
+        }
+    }
+
+    // 用户从权限设置页返回后由 MainActivity 触发：用已捕获的 rawFrame 重放
+    // DisplayActivity；仍被拦则探测回调会再弹引导（R-Q6）。
+    private val retryDisplayReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_RETRY_DISPLAY) retryDisplay()
+        }
+    }
+
+    private fun retryDisplay() {
+        if (state != AppState.State.WAITING) {
+            android.util.Log.d("ScreenFlip", "retry display: state=$state, ignore")
+            return
+        }
+        val frame = AppState.rawFrame.value
+        if (frame == null) {
+            android.util.Log.d("ScreenFlip", "retry display: no raw frame, ignore")
+            return
+        }
+        android.util.Log.d("ScreenFlip", "retry display: replaying DisplayActivity with captured frame")
+        launchDisplay(frame, logLatency = false)
+    }
+
     private fun cancelAll() {
         removeRestoreRunnable()
         removeCountdownRunnable()
+        removeLaunchProbe()
         AppState.setShowText("")
         AppState.setCountdownSeconds(-1)
     }
@@ -321,36 +410,41 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         }
         android.util.Log.d("ScreenFlip", "onDisplayDismissed state=$state")
         if (state != AppState.State.SHOWING) return
-        state = AppState.State.WAITING
-        AppState.setShowText("")
-        toolbarManager.show()
-        updateNotification(getString(R.string.notif_standby))
-        if (AppState.autoEnabled.value) scheduleAutoCapture()
+        backToWaiting()
     }
 
     override fun onRawFrameReady(bitmap: Bitmap) {
-        handler.post {
-            AppState.setRawFrame(bitmap)
-            val intent = Intent(this, DisplayActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            try {
-                startActivity(intent)
-                AppState.nextDisplaySeq()
+        handler.post { launchDisplay(bitmap, logLatency = true) }
+    }
+
+    // 用 rawFrame 启动 DisplayActivity 并武装后台启动探测。不立即进 SHOWING：
+    // 由探测回调在确认 onCreate 真的执行后才进（R-Q5）。
+    private fun launchDisplay(bitmap: Bitmap, logLatency: Boolean) {
+        AppState.setRawFrame(bitmap)
+        AppState.resetDisplayAppeared()
+        val intent = Intent(this, DisplayActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(intent)
+            AppState.nextDisplaySeq()
+            if (logLatency) {
                 android.util.Log.d(
                     "ScreenFlip",
                     "LATENCY capture->display ${SystemClock.uptimeMillis() - lastCaptureStartMs}ms"
                 )
-                android.util.Log.d("ScreenFlip", "DisplayActivity launched")
-            } catch (e: Exception) {
-                android.util.Log.e("ScreenFlip", "launch DisplayActivity failed: ${e.message}")
             }
-            state = AppState.State.SHOWING
-            toolbarManager.show()
-            AppState.setShowText(getString(R.string.notif_shown))
-            android.util.Log.d("ScreenFlip", "onRawFrameReady: display shown")
-            updateNotification(getString(R.string.notif_shown))
+            android.util.Log.d("ScreenFlip", "DisplayActivity launched")
+        } catch (e: Exception) {
+            // 仅作次级信号：后台被拦通常静默失败不抛异常，判定依赖超时观察（ADR 0003）
+            android.util.Log.e("ScreenFlip", "launch DisplayActivity failed: ${e.message}")
         }
+        removeLaunchProbe()
+        handler.postDelayed(launchProbeRunnable, DISPLAY_LAUNCH_TIMEOUT_MS)
+    }
+
+    private fun removeLaunchProbe() {
+        handler.removeCallbacks(launchProbeRunnable)
     }
 
     override fun onCaptureError() {
@@ -467,6 +561,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         try { unregisterReceiver(displayDismissedReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(displayDismissingReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(screenOffReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(retryDisplayReceiver) } catch (_: Exception) {}
         serviceScope.cancel()
         stopMirroring()
         super.onDestroy()
@@ -481,7 +576,10 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         const val ACTION_DISPLAY_DISMISSED = "com.liyihc.screenflipper.ACTION_DISPLAY_DISMISSED"
         const val ACTION_PROJECTION_GRANTED = "com.liyihc.screenflipper.ACTION_PROJECTION_GRANTED"
         const val ACTION_DEBUG = "com.liyihc.screenflipper.ACTION_DEBUG"
+        const val ACTION_RETRY_DISPLAY = "com.liyihc.screenflipper.ACTION_RETRY_DISPLAY"
         const val EXTRA_PROJECTION_DATA = "projection_data"
+        // 后台启动探测超时：正常 onCreate 在启动后 ~30ms 内到达，800ms 足以避开慢冷启动误报。
+        private const val DISPLAY_LAUNCH_TIMEOUT_MS = 800L
         private const val CHANNEL_ID = "screen_flip_channel"
         private const val NOTIFICATION_ID = 1001
     }

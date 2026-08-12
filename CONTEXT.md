@@ -78,6 +78,15 @@ to read the screen. It must be granted by a human tap on every fresh install or
 service restart and cannot be obtained programmatically.
 _Avoid_: capture permission, screen permission (too vague — it is specifically a MediaProjection grant)
 
+**Background Popup Permission**:
+A vendor/ROM runtime permission that decides whether the app may launch windows or
+Activities while in the background. There is **no public API** to query it — it is
+detected only by a runtime probe that verifies a background Activity launch actually
+happened (see ADR 0003). The canonical instance is MIUI「后台弹出窗口」, but the term
+is not limited to MIUI.
+_Avoid_: overlay permission, 悬浮窗权限 (the standard `SYSTEM_ALERT_WINDOW` grant,
+queryable via `Settings.canDrawOverlays`, is a different thing)
+
 **Display**:
 The full-screen opaque Activity that shows the Snapshot. It is not an overlay; it
 replaces the screen content while visible, and a tap dismisses it. Historically the

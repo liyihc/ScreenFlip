@@ -35,6 +35,11 @@ object AppState {
 
     private var displaySeq = 0L
 
+    // per-launch 探测标记：每次启动 DisplayActivity 前复位，onCreate 里置位。
+    // 超时回调据此判定本次后台启动是否真的「出现」（ADR 0003）。与 isDisplayShowing
+    // 不同，它是按启动实例的一次性标志，不会被旧实例/旧状态混淆。
+    private var displayAppeared = false
+
     // 每次 DisplayActivity 启动递增；旧实例延迟销毁时广播的 DISMISSED 携带旧序号，
     // MirrorService 据此忽略过期关闭事件。
     @Synchronized
@@ -45,6 +50,19 @@ object AppState {
 
     @Synchronized
     fun currentDisplaySeq(): Long = displaySeq
+
+    @Synchronized
+    fun resetDisplayAppeared() {
+        displayAppeared = false
+    }
+
+    @Synchronized
+    fun markDisplayAppeared() {
+        displayAppeared = true
+    }
+
+    @Synchronized
+    fun hasDisplayAppeared(): Boolean = displayAppeared
 
     fun setState(value: State) {
         _state.value = value

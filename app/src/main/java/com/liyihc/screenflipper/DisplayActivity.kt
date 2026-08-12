@@ -53,6 +53,8 @@ class DisplayActivity : Activity() {
 
         AppState.setIsDisplayShowing(true)
         displaySeq = AppState.currentDisplaySeq()
+        // 后台启动探测标记（ADR 0003）：onCreate 真正执行即证明本次 startActivity 未被拦截
+        AppState.markDisplayAppeared()
 
         renderFrame(AppState.rawFrame.value, AppState.flipMode.value)
 
