@@ -17,8 +17,6 @@
     <string name="notif_projection_invalid">录屏权限已失效，请点开始重新授权</string>
     <string name="notif_action_start">开始</string>
     <string name="notif_action_stop">停止</string>
-    <string name="overlay_guide_title">需要开启「后台弹出窗口」权限</string>
-    <string name="overlay_guide_message">系统检测到本应用被禁止弹出悬浮窗，工具栏无法显示。请前往权限设置开启「后台弹出窗口」后重试。</string>
-    <string name="overlay_guide_open">去开启</string>
-    <string name="notif_bg_launch_blocked">被系统拦截：请在应用权限设置中开启「后台弹出窗口」</string>
+    <string name="notif_bg_launch_blocked">被系统拦截：点击开启「后台弹出窗口」权限</string>
+    <string name="toolbar_blocked_hint">需后台启动权限，可点通知</string>
 </resources>

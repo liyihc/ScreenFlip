@@ -94,6 +94,27 @@ flipped image was also shown via a separate Overlay window, but that was removed
 the Display is now the only full-screen window and the sole renderer of the Snapshot.
 _Avoid_: overlay, preview
 
+**Blocked Background Launch**:
+The outcome where starting the Display is silently swallowed by a vendor permission
+(the Background Popup Permission): `startActivity` throws nothing, the Activity
+just never appears. Detected not by an API or exception but by a runtime timeout
+probe — if `DisplayActivity.onCreate` hasn't run within the probe window (~800ms),
+the launch is judged blocked (ADR 0003).
+_Avoid_: 被系统拦截, permission denied (user-facing phrasings, not the term)
+
+**Popup Permission Guide**:
+The user guidance flow triggered by a Blocked Background Launch: a heads-up alert
+notification (its own high-importance channel) whose tap opens the Background Popup
+Permission settings page directly; the Toolbar's status line carries a persistent
+hint pointing to that notification as the actionable entry; on return from settings,
+the app auto-retries the blocked Display launch with the retained rawFrame. The
+former dialog-based guide was removed because the dialog's own background launch was
+equally blocked and never appeared (ADR 0004). The Toolbar hint itself is not
+clickable — a Toolbar-initiated `startActivity` would be blocked by the same
+permission (a Toolbar click and a notification click are different classes: the
+latter is user-initiated and exempt).
+_Avoid_: blocked notification, permission dialog
+
 **Toolbar**:
 The draggable floating window (悬浮窗) that lets the user arm Operations, cycle
 Flip Mode, and exit. Kept visible during the Auto Loop countdown; hidden only for

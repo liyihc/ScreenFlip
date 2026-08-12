@@ -14,8 +14,8 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private var launching = false
-    // 用户点了「去开启」从引导对话框进入权限设置页；返回时 onResume 触发自动重试。
-    private var guideReturnRetry = false
+    // 被拦告警通知（ADR 0004）直达权限设置页；返回时 onResume 触发自动重试。
+    private var settingsReturnRetry = false
 
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -47,8 +47,11 @@ class MainActivity : AppCompatActivity() {
         android.util.Log.d("ScreenFlip", "MainActivity onCreate action=${intent?.action}")
         // 不加载任何布局：本 Activity 仅作中转，不展示主界面
 
-        if (intent?.action == ACTION_SHOW_OVERLAY_GUIDE) {
-            showOverlayGuide()
+        if (intent?.action == ACTION_OPEN_PERMISSION_SETTINGS) {
+            // 被拦告警通知直达（ADR 0004）：不进对话框，直接打开「后台弹出窗口」权限设置页。
+            // 通知点击是用户主动操作，不受后台启动限制，MainActivity 一定能走到这里。
+            settingsReturnRetry = true
+            openOverlayPermissionSettings()
             return
         }
 
@@ -62,26 +65,10 @@ class MainActivity : AppCompatActivity() {
         startOrRequestProjection()
     }
 
-    // 后台启动被系统拦截时的引导对话框：说明原因并提供「去开启」按钮，
-    // 打开 MIUI「后台弹出窗口」/应用权限设置页。返回时（onResume）自动重试（R-Q6）。
-    private fun showOverlayGuide() {
-        android.util.Log.d("ScreenFlip", "showing overlay permission guide dialog")
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(R.string.overlay_guide_title)
-            .setMessage(R.string.overlay_guide_message)
-            .setPositiveButton(R.string.overlay_guide_open) { _, _ ->
-                guideReturnRetry = true
-                openOverlayPermissionSettings()
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .setOnDismissListener { if (!guideReturnRetry) finish() }
-            .show()
-    }
-
     // 从权限设置页返回：请求 MirrorService 用已捕获的 rawFrame 重放 DisplayActivity。
-    // 仍被拦时探测回调会再弹引导（ADR 0003 决定 6）。
-    private fun retryDisplayAfterGuide() {
-        android.util.Log.d("ScreenFlip", "guide settings return: retrying display launch")
+    // 仍被拦时探测回调会再弹告警通知（ADR 0004，取代原对话框链路）。
+    private fun retryDisplayAfterSettings() {
+        android.util.Log.d("ScreenFlip", "permission settings return: retrying display launch")
         sendBroadcast(Intent(MirrorService.ACTION_RETRY_DISPLAY))
         finish()
     }
@@ -118,9 +105,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 引导流程：从权限设置页返回时自动重试 DisplayActivity 启动；否则不跑普通权限路径。
-        if (intent?.action == ACTION_SHOW_OVERLAY_GUIDE) {
-            if (guideReturnRetry) retryDisplayAfterGuide()
+        // 被拦告警路径：从权限设置页返回时自动重试 DisplayActivity 启动。
+        if (intent?.action == ACTION_OPEN_PERMISSION_SETTINGS) {
+            if (settingsReturnRetry) retryDisplayAfterSettings()
             return
         }
         // 从设置/权限页返回后，若权限现已齐全则继续
@@ -187,7 +174,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val ACTION_REQUEST_PROJECTION =
             "com.liyihc.screenflipper.ACTION_REQUEST_PROJECTION"
-        const val ACTION_SHOW_OVERLAY_GUIDE =
-            "com.liyihc.screenflipper.ACTION_SHOW_OVERLAY_GUIDE"
+        const val ACTION_OPEN_PERMISSION_SETTINGS =
+            "com.liyihc.screenflipper.ACTION_OPEN_PERMISSION_SETTINGS"
     }
 }

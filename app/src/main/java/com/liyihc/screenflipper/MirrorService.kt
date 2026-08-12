@@ -336,8 +336,9 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         stopSelf()
     }
 
-    // 后台启动探测判定被拦（R-Q5）：不进 SHOWING、回 WAITING、更新通知说明权限原因、
-    // 停掉自动循环（避免每 5 秒叠弹窗），并拉起引导对话框。
+    // 后台启动探测判定被拦（R-Q5）：不进 SHOWING、回 WAITING、停掉自动循环（避免每 5 秒
+    // 叠弹窗），并用高重要性告警通知引导——点通知直达权限设置页（ADR 0004）。对话框链路
+    // 已删除：其自身的后台启动同样被拦、永不出现，通知是被拦的唯一可靠引导出口。
     // rawFrame 保留在 AppState——用户从权限设置页返回后需用它重放 DisplayActivity（R-Q6）。
     private fun onDisplayLaunchBlocked() {
         if (state == AppState.State.IDLE) return
@@ -348,26 +349,32 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         cancelAll()
         AppState.setAutoEnabled(false)
         state = AppState.State.WAITING
-        AppState.setShowText("")
+        // 副标题提示（ADR 0004）：悬浮窗常驻可见，指向通知这个可操作入口；
+        // 通知点击是用户主动操作，不受后台启动限制，悬浮窗点击则会同样被拦。
+        AppState.setShowText(getString(R.string.toolbar_blocked_hint))
         toolbarManager.show()
-        updateNotification(getString(R.string.notif_bg_launch_blocked))
-        showBackgroundPopupGuide()
+        showBlockedAlert()
     }
 
-    // 拉起权限引导（MainActivity 弹对话框 -> 打开「后台弹出窗口」权限设置页）。
-    // 不按生命周期去重：每次被拦都弹（R-Q4/R-Q7）。若本次启动本身也被系统拦截，
-    // startActivity 静默失败，用户仍能通过通知看到权限原因。
-    private fun showBackgroundPopupGuide() {
-        android.util.Log.e("ScreenFlip", "background launch blocked, guiding user to enable Background Popup Permission")
-        try {
-            val intent = Intent(this, MainActivity::class.java).apply {
-                action = MainActivity.ACTION_SHOW_OVERLAY_GUIDE
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            startActivity(intent)
-        } catch (e: Exception) {
-            android.util.Log.e("ScreenFlip", "start overlay guide failed: ${e.message}")
+    // 高重要性告警通知：contentIntent 直达权限设置页（通知点击=用户主动操作，不受后台启动
+    // 限制）。每次被拦都弹（R-Q4/R-Q7）。
+    private fun showBlockedAlert() {
+        val settingsIntent = Intent(this, MainActivity::class.java).apply {
+            action = MainActivity.ACTION_OPEN_PERMISSION_SETTINGS
         }
+        val settingsPi = PendingIntent.getActivity(
+            this, 1, settingsIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(
+            NOTIFICATION_ID,
+            buildNotification(
+                getString(R.string.notif_bg_launch_blocked),
+                ALERT_CHANNEL_ID,
+                settingsPi
+            )
+        )
     }
 
     // 用户从权限设置页返回后由 MainActivity 触发：用已捕获的 rawFrame 重放
@@ -495,17 +502,29 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Screen Flip",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
+            // 被拦告警专用高重要性通道（ADR 0004）：只在被拦通知上用，日常通知保持安静。
+            // 通道重要性创建后不可改，故单独建一个而非升级原通道。
+            val alertChannel = NotificationChannel(
+                ALERT_CHANNEL_ID,
+                "Screen Flip alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            nm.createNotificationChannel(alertChannel)
         }
     }
 
-    private fun buildNotification(text: String): Notification {
+    private fun buildNotification(
+        text: String,
+        channelId: String = CHANNEL_ID,
+        contentIntent: PendingIntent? = null
+    ): Notification {
         val startIntent = Intent(this, MainActivity::class.java).apply {
             action = MainActivity.ACTION_REQUEST_PROJECTION
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -520,7 +539,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
         )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
+            Notification.Builder(this, channelId)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
@@ -530,6 +549,9 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_gallery)
             .addAction(android.R.drawable.ic_menu_gallery, getString(R.string.notif_action_start), startPi)
+        if (contentIntent != null) {
+            builder.setContentIntent(contentIntent)
+        }
         builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.notif_action_stop), stopPi)
         return builder.build()
     }
@@ -581,6 +603,7 @@ class MirrorService : Service(), MirrorEngine.Callback, ToolbarManager.ToolbarCa
         // 后台启动探测超时：正常 onCreate 在启动后 ~30ms 内到达，800ms 足以避开慢冷启动误报。
         private const val DISPLAY_LAUNCH_TIMEOUT_MS = 800L
         private const val CHANNEL_ID = "screen_flip_channel"
+        private const val ALERT_CHANNEL_ID = "screen_flip_alerts"
         private const val NOTIFICATION_ID = 1001
     }
 }
